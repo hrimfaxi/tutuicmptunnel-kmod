@@ -1,0 +1,13 @@
+[Unit]
+Description=TUTUICMP Tunnel Server
+After=network.target
+
+[Service]
+Type=simple
+User=hrimfaxi
+ExecStart=/usr/local/bin/tuctl_server --psk testpassword --port 14801
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+---
+Language:        Cpp
+# Based on LLVM style
+BasedOnStyle:  LLVM
+IndentWidth:     2
+TabWidth:        2
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterEnum:      false
+  AfterStruct:    false
+  AfterUnion:     false
+  AfterExternBlock: false
+PointerAlignment: Right
+AlignTrailingComments: true
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+ColumnLimit:     128
+ContinuationIndentWidth: 2
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: true
+SpacesInParentheses: false
+SpacesInCStyleCastParentheses: false
+SpaceBeforeAssignmentOperators: true
+SpacesInContainerLiterals: false
+SpacesInSquareBrackets: false
+PenaltyReturnTypeOnItsOwnLine: 200
+PenaltyBreakBeforeFirstCallParameter: 200
+PenaltyBreakAssignment: 200
+PenaltyExcessCharacter: 1000000
+PenaltyBreakString: 5000
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
+UseTab: false

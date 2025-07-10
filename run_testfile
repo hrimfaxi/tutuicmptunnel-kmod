@@ -1,0 +1,4 @@
+#!/bin/sh
+
+PROXY=${PROXY:-localhost:10809}
+curl -x $PROXY link.testfile.org/500MB -o /dev/null -L

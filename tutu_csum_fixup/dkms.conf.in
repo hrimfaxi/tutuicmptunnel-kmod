@@ -1,0 +1,7 @@
+PACKAGE_NAME="tutu_csum_fixup"
+PACKAGE_VERSION="@tutuicmptunnel_VERSION@"
+BUILT_MODULE_NAME[0]="tutu_csum_fixup"
+DEST_MODULE_LOCATION[0]="/updates"
+AUTOINSTALL="yes"
+MAKE="make"
+CLEAN="make clean"

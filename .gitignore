@@ -1,0 +1,12 @@
+.venv
+.venv-pypy3
+.python-version
+__pycache__
+tags
+
+tutuicmptunnel
+
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+*.o

@@ -1,0 +1,58 @@
+[Unit]
+Description=KCPTun Server
+After=network.target
+
+[Service]
+Type=simple
+
+# 载入环境变量（密钥等），systemd 方式
+EnvironmentFile=/etc/default/kcptun-client-%i
+
+# 使用 DynamicUser 提高隔离性
+DynamicUser=yes
+
+# 程序必须能监听高端口，否则需加 CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# 文件系统和家目录保护
+ProtectSystem=full
+ProtectHome=yes
+
+# 额外安全限制
+NoNewPrivileges=true
+PrivateTmp=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+
+# 资源限制，可根据实际需求调整
+LimitNOFILE=1048576
+
+# 启动命令（变量用环境变量方式传入）
+ExecStart=/usr/local/bin/kcptun-client \
+  --smuxver "$KCPTUN_SMUXVER" \
+  -r "$KCPTUN_REMOTE" \
+  -l ":${KCPTUN_LISTEN}" \
+  -mode "$KCPTUN_MODE" \
+  -nocomp \
+  --autoexpire "${KCPTUN_AUTOEXPIRE}" \
+  --datashard "$KCPTUN_DATASHARD" \
+  --parityshard "$KCPTUN_PARITYSHARD" \
+  --crypt "$KCPTUN_CRYPT" \
+  --key "$KCPTUN_KEY" \
+  -sockbuf "$KCPTUN_SOCKBUF" \
+  --sndwnd "$KCPTUN_SNDWND" \
+  --rcvwnd "$KCPTUN_RCVWND" \
+  --mtu "$KCPTUN_MTU"
+
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

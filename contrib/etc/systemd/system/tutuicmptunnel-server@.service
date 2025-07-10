@@ -1,0 +1,27 @@
+[Unit]
+Description=tutuicmptunnel BPF loader for %i
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/tutuicmptunnel-server-%i
+ExecStartPre=/bin/bash -c 'modprobe tutu_csum_fixup || true'
+ExecStartPre=/bin/mkdir -p /etc/tutuicmptunnel
+ExecStartPre=/bin/bash -c 'tuctl unload iface %i || true'
+ExecStartPre=/bin/bash -c 'tuctl load iface %i $TUCTL_DEBUG'
+ExecStart=/bin/bash -c '\
+    if [ -f /etc/tutuicmptunnel/config ]; then  \
+        exec tuctl script /etc/tutuicmptunnel/config; \
+    else  \
+        exec tuctl server; \
+    fi'
+ExecStop=/bin/bash -c 'tmpfile=$(mktemp); if tuctl dump > "$tmpfile"; then mv "$tmpfile" /etc/tutuicmptunnel/config; else rm -f "$tmpfile"; fi'
+ExecStop=/bin/bash -c 'tuctl unload iface %i'
+ExecStop=/bin/bash -c 'modprobe -r tutu_csum_fixup || true'
+RemainAfterExit=yes
+
+StandardOutput=journal
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
