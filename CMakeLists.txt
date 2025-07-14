@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(tutuicmptunnel VERSION 1.0 LANGUAGES C)
 
+if(NOT CMAKE_BUILD_TYPE)
+  message(FATAL_ERROR "CMAKE_BUILD_TYPE is not set. Please set it to continue.\n"
+                      "Example: cmake -DCMAKE_BUILD_TYPE=Release ..\n"
+                      "Valid types: Release, Debug, RelWithDebInfo, MinSizeRel")
+endif()
+
 set(CMAKE_C_STANDARD 11)
 add_compile_options(-Wall -Wextra)
 add_definitions(-D_GNU_SOURCE=1 -DPROJECT_NAME=${CMAKE_PROJECT_NAME} -DINSTALL_PREFIX_DIR=${CMAKE_INSTALL_PREFIX})
@@ -16,6 +22,57 @@ message(STATUS "Using system libbpf&bpftool=${USE_SYSTEM_LIBBPF_BPFTOOL}")
 option(USE_LLVM_FOR_KMOD 1)
 option(DISABLE_BPF_TIMER 0)
 message(STATUS "Disable BPF timer=${DISABLE_BPF_TIMER}")
+option(ENABLE_HARDEN_MODE "Enable security hardening compiler and linker flags" OFF)
+if (ENABLE_HARDEN_MODE)
+  message(STATUS "Secure mode enabled. Adding security hardening flags.")
+  add_compile_definitions(_FORTIFY_SOURCE=2)
+  set(HARDEN_C_FLAGS
+    -Werror
+    -Werror=implicit
+    -Werror=incompatible-pointer-types
+    -Werror=int-conversion
+    -fPIE
+  )
+  include(CheckCCompilerFlag)
+  macro(check_and_add_c_flag FLAG)
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" VAR_SUFFIX ${FLAG})
+    check_c_compiler_flag("${FLAG}" "C_HAS_${VAR_SUFFIX}")
+    if(C_HAS_${VAR_SUFFIX})
+      message(STATUS "  -> Compiler supports: ${FLAG}")
+      list(APPEND HARDEN_C_FLAGS "${FLAG}")
+    else()
+      message(STATUS "  -> Compiler does NOT support: ${FLAG} (skipping)")
+    endif()
+  endmacro()
+
+  check_and_add_c_flag("-fstack-clash-protection")
+  check_and_add_c_flag("-fstack-protector-strong")
+  check_and_add_c_flag("-Wtrampolines")
+  check_and_add_c_flag("-Wbidi-chars=any")
+  check_and_add_c_flag("-fno-delete-null-pointer-checks")
+  check_and_add_c_flag("-fno-strict-overflow")
+  check_and_add_c_flag("-fno-strict-aliasing")
+  check_and_add_c_flag("-ftrivial-auto-var-init=zero")
+  check_and_add_c_flag("-fstrict-flex-arrays=3")
+  check_and_add_c_flag("-mbranch-protection=standard")
+  check_and_add_c_flag("-fexceptions")
+  check_and_add_c_flag("-fcf-protection=full")
+  if (NOT C_HAS__fcf_protection_full)
+    check_and_add_c_flag("-fcf-protection=branch")
+  endif()
+
+  set(HARDEN_LINKER_FLAGS
+        -pie
+        -Wl,-z,nodlopen
+        -Wl,-z,noexecstack
+        -Wl,-z,relro
+        -Wl,-z,now
+        -Wl,--as-needed
+        -Wl,--no-copy-dt-needed-entries
+        -Wl,-z,max-page-size=4096
+        -Wl,--gc-sections
+  )
+endif()
 
 if (NOT USE_SYSTEM_LIBBPF_BPFTOOL)
   execute_process(
