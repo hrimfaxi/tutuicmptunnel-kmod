@@ -73,7 +73,7 @@ sudo pacman -S git base-devel libbpf clang cmake libsodium dkms libsodium
 
 ```sh
 git clone https://github.com/hrimfaxi/tutuicmptunnel
-cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_LIBBPF_BPFTOOL=1 .
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 -DUSE_SYSTEM_LIBBPF_BPFTOOL=1 .
 ```
 
 注意：如果是`Ubuntu` 20.04，需要使用`git`版本的`libbpf`/`bpftool`，并且关闭`bpf timer`支持
