@@ -48,7 +48,7 @@
 依赖准备:
 
 ```sh
-sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-tools libsodium-dev
+sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-tools libsodium-dev libelf-dev
 ```
 
 注意：如果你安装的不是标准`ubuntu`内核，请安装对应内核的`linux-tools`。

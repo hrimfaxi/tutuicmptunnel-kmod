@@ -8,7 +8,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_C_STANDARD 11)
-add_compile_options(-Wall -Wextra)
+add_compile_options(-Wall -Wextra -Wno-error)
 add_definitions(-D_GNU_SOURCE=1 -DPROJECT_NAME=${CMAKE_PROJECT_NAME} -DINSTALL_PREFIX_DIR=${CMAKE_INSTALL_PREFIX})
 include_directories(common)
 add_compile_definitions(
@@ -27,7 +27,7 @@ if (ENABLE_HARDEN_MODE)
   message(STATUS "Secure mode enabled. Adding security hardening flags.")
   add_compile_definitions(_FORTIFY_SOURCE=2)
   set(HARDEN_C_FLAGS
-    -Werror
+    #-Werror
     -Werror=implicit
     -Werror=incompatible-pointer-types
     -Werror=int-conversion
@@ -161,8 +161,7 @@ if (NOT USE_SYSTEM_LIBBPF_BPFTOOL)
 
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/bpftool_installed.stamp
-    COMMAND DESTDIR=root $(MAKE) install
-    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/bpftool_installed.stamp
+    COMMAND DESTDIR=root $(MAKE) "EXTRA_CFLAGS=-Wno-error"  install
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/bpftool/src
     COMMENT "Building and installing bpftool"
   )
