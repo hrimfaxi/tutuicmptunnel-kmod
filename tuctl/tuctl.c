@@ -641,7 +641,7 @@ static int print_server_add_usage(int argc, char **argv) {
     "  %-22s The numeric user ID to authorize.\n"
     "  %-22s The username to authorize.\n"
     "  %-22s The client's source address.\n"
-    "  %-22s The client's source port for the tunnel.\n"
+    "  %-22s The destination port on the server for the tunnel.\n"
     "  %-22s Optional: The specific ICMP ID for the client.\n"
     "  %-22s Optional: The specific source port for the client.\n"
     "  %-22s Optional: A descriptive comment for this client entry.\n\n"
