@@ -1,0 +1,51 @@
+#!/bin/sh
+
+# Maintainer: hrimfaxi <outmatch@gmail.com>
+pkgname=('tutuicmptunnel' 'tutuicmptunnel-kernel-dkms')
+_pkgname_base=tutuicmptunnel
+pkgdesc="An UDP-to-ICMP tunnel based on tc-BPF."
+arch=('x86_64')
+url="https://github.com/hrimfaxi/tutuicmptunnel"
+license=('GPL2')
+makedepends=('cmake' 'clang' 'llvm')
+source=("${_pkgname_base}::git+${url}")
+sha256sums=('SKIP')
+pkgrver=1.0
+pkgver=0
+pkgrel=1
+
+build() {
+  cd "${srcdir}/${_pkgname_base}"
+  cmake -B build -S . \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_HARDEN_MODE=1
+  cmake --build build
+}
+
+package_tutuicmptunnel() {
+  depends=('libsodium')
+  cd "${srcdir}/${_pkgname_base}"
+  DESTDIR="${pkgdir}" cmake --install build
+  mv "${pkgdir}/usr/sbin/tuctl" "${pkgdir}/usr/bin/"
+  rm -rf "${pkgdir}/usr/sbin"
+  rm -rf "${pkgdir}/usr/src"
+}
+
+package_tutuicmptunnel-kernel-dkms() {
+  depends=('dkms' 'linux-headers')
+  _dkms_dir="usr/src/${_pkgname_base}-kernel-${pkgver}"
+  install -d "${pkgdir}/${_dkms_dir}"
+  install -m644 "${srcdir}/${_pkgname_base}/tutu_csum_fixup/Makefile" "${pkgdir}/${_dkms_dir}/"
+  install -m644 "${srcdir}/${_pkgname_base}/tutu_csum_fixup/tutu_csum_fixup.c" "${pkgdir}/${_dkms_dir}/"
+  install -m644 "${srcdir}/${_pkgname_base}/tutu_csum_fixup/csum-hack.h" "${pkgdir}/${_dkms_dir}/"
+  cat << DKMS_EOF > "${pkgdir}/${_dkms_dir}/dkms.conf"
+  PACKAGE_NAME="${_pkgname_base}-kernel"
+  PACKAGE_VERSION="${pkgver}"
+  BUILT_MODULE_NAME[0]="tutu_csum_fixup"
+  DEST_MODULE_LOCATION[0]="/updates"
+  AUTOINSTALL="yes"
+  MAKE[0]="make"
+  CLEAN[0]="make clean"
+DKMS_EOF
+}
