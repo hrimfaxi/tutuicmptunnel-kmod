@@ -1,10 +1,11 @@
 # tutuicmptunnel
 
-基于`bpf`的`udp`转换为`ICMP`隧道工具。可以用于代替`udp2raw`的`ICMP`模式。
+基于 `bpf` 的 `UDP` 转 `ICMP` 隧道工具，可作为 `udp2raw` `ICMP` 模式的替代方案。
+推荐与 `kcptun`、`hysteria`、`wireguard` 等工具配合使用，共同应对 `GFW` 或 `ISP` 越来越严厉的 `UDP` `QOS` 和丢包策略，有效提升穿透能力和连接稳定性。
 
 ## 优点与特性
 
-1. 同等cpu下最大流量比`udp2raw`快几倍，同时cpu占用资源用少的多。参见[性能测试](docs/benchmark.md)
+1. 同等`cpu`下最大流量比`udp2raw`快几倍，同时`cpu`占用资源用少的多。参见[性能测试](docs/benchmark.md)
 2. 安全的设计与实现
 3. 支持`openwrt`上运行
 4. 支持`ipv4/ipv6`下的`icmp`/`icmp6`
