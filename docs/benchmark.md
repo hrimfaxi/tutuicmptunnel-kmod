@@ -460,6 +460,6 @@ cpu占用率：4核60～70%
 * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `udp2raw` (`0.841 Gbits/sec`) 的 `5.26` 倍。
 * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `udp2raw` (`0.684 Gbits/sec`) 的 `6.47` 倍。
 * 在测试过程中, `udp2raw`速度波动很大，有时能低到`280Mb/s`，可能是进程调度器产生的抖动现象导致。而`tutuicmptunnel`完全没有这个现象。
-* `phantun`和`udp2raw`相差不大，发送略快接受略慢。注意到`phantun`可能由于其多核设计比`udp2raw`性能稳定点。
+* `phantun`和`udp2raw`相差不大，发送略慢接受略快。注意到`phantun`可能由于其多核设计比`udp2raw`性能稳定点。
   * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `phantun` (`0.769 Gbits/sec`) 的 `5.75` 倍。
   * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `phantun` (`0.746 Gbits/sec`) 的 `5.94` 倍。
