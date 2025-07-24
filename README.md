@@ -4,7 +4,9 @@
 
 # tutuicmptunnel
 
-A `bpf`-based tool that tunnels UDP traffic over ICMP. It can be used as a high-performance alternative to `udp2raw`'s ICMP mode.
+A BPF-based tool for tunneling UDP traffic over ICMP, serving as an alternative to udp2raw's ICMP mode.
+
+It is recommended to use this tool together with kcptun, hysteria, wireguard, and similar tools. This combination helps to effectively bypass increasingly strict UDP QOS and packet loss policies imposed by the GFW or ISPs, greatly improving penetration capability and connection stability.
 
 ## Advantages and Features
 
