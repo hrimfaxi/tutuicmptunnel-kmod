@@ -83,7 +83,7 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
     Note: For `Ubuntu` 20.04, you need to use the `git` version of `libbpf`/`bpftool` and disable `bpf timer` support.
 
     ```sh
-    cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_LIBBPF_BPFTOOL=0 -DDISABLE_BPF_TIMER=1 .
+    cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_LIBBPF_BPFTOOL=0 -DDISABLE_BPF_TIMER=1 -DBPF_CPU_VERSION="" .
     ```
 
     ```sh
