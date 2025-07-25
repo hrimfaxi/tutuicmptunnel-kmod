@@ -23,6 +23,8 @@ option(USE_LLVM_FOR_KMOD 1)
 option(DISABLE_BPF_TIMER 0)
 message(STATUS "Disable BPF timer=${DISABLE_BPF_TIMER}")
 option(ENABLE_HARDEN_MODE "Enable security hardening compiler and linker flags" OFF)
+set(BPF_CPU_VERSION "" CACHE STRING "BPF CPU version (empty, v1, v2, v3, v4 or probe)")
+message(STATUS "BPF CPU Version=${BPF_CPU_VERSION}")
 if (ENABLE_HARDEN_MODE)
   message(STATUS "Secure mode enabled. Adding security hardening flags.")
   add_compile_definitions(_FORTIFY_SOURCE=2)
@@ -140,7 +142,7 @@ endif()
 
 add_custom_target(
   build_bpf
-  COMMAND $(MAKE) ${MAKE_NOSILENT_ARG} -C ${PROJECT_SOURCE_DIR}/bpf ${BPF_ARCH_PARAM} BPFTOOL=${BPFTOOL} V=1
+  COMMAND BPF_CPU_VERSION=${BPF_CPU_VERSION} $(MAKE) ${MAKE_NOSILENT_ARG} -C ${PROJECT_SOURCE_DIR}/bpf ${BPF_ARCH_PARAM} BPFTOOL=${BPFTOOL} V=1
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/bpf
   COMMENT "Building bpf"
 )
