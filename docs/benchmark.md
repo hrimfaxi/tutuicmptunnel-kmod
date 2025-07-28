@@ -647,6 +647,6 @@ cpu占用率：4核60～70%
   * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `phantun` (`0.769 Gbits/sec`) 的 `5.75` 倍。
   * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `phantun` (`0.746 Gbits/sec`) 的 `5.94` 倍。
 * `pingtunnel`是使用`go`语言写的基于原始套接字的`IMCP`隧道工具，可转发`udp`/`tcp`/`socks5`。
-  * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `phantun` (`0.490 Gbits/sec`) 的 `9.02` 倍。
-  * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `phantun` (`0.460 Gbits/sec`) 的 `9.63` 倍。
+  * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `pingtunnel` (`0.490 Gbits/sec`) 的 `9.02` 倍。
+  * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `pingtunnel` (`0.460 Gbits/sec`) 的 `9.63` 倍。
 * `mimic`作为同为基于`bpf`的`udp`转`faketcp`工具，最大性能为`tutuicmptunnel`的70%左右。
