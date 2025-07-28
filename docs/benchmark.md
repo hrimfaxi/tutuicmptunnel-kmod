@@ -439,6 +439,90 @@ iperf Done.
 CPU占用率： 4核60~70%
 ```
 
+## `wireguard`和`pingtunnel`
+
+基于原始套接字的ICMP转发隧道，支持`udp`和`tcp`和`socks5`
+
+```
+服务器：
+sudo tee /proc/sys/net/ipv4/icmp_echo_ignore_all <<< 1
+sudo pingtunnel -type server
+
+客户端：
+sudo tee /proc/sys/net/ipv4/icmp_echo_ignore_all <<< 1
+# 开启udp转发到服务器的wireguard端口51820
+sudo pingtunnel -type client -l :4455  -s 192.168.122.58 -t 127.0.0.1:51820
+```
+
+iperf3测试结果：
+
+```
+❯ iperf3 -c peer-wg -t 20  
+Connecting to host peer-wg, port 5201
+[  5] local 10.200.103.2 port 46090 connected to 10.200.103.1 port 5201
+[ ID] Interval           Transfer     Bitrate         Retr  Cwnd
+[  5]   0.00-1.00   sec  57.4 MBytes   481 Mbits/sec   53    103 KBytes       
+[  5]   1.00-2.00   sec  59.6 MBytes   501 Mbits/sec   47    102 KBytes       
+[  5]   2.00-3.00   sec  55.4 MBytes   465 Mbits/sec   52    100 KBytes       
+[  5]   3.00-4.00   sec  65.2 MBytes   547 Mbits/sec   68    111 KBytes       
+[  5]   4.00-5.00   sec  64.1 MBytes   538 Mbits/sec   84    102 KBytes       
+[  5]   5.00-6.00   sec  58.8 MBytes   492 Mbits/sec   55    112 KBytes       
+[  5]   6.00-7.00   sec  57.1 MBytes   479 Mbits/sec   63   81.5 KBytes       
+[  5]   7.00-8.00   sec  58.8 MBytes   493 Mbits/sec   52    111 KBytes       
+[  5]   8.00-9.00   sec  60.9 MBytes   511 Mbits/sec   62   86.8 KBytes       
+[  5]   9.00-10.00  sec  57.5 MBytes   482 Mbits/sec   51   97.5 KBytes       
+[  5]  10.00-11.00  sec  57.2 MBytes   480 Mbits/sec   55   85.5 KBytes       
+[  5]  11.00-12.00  sec  57.2 MBytes   480 Mbits/sec   49    107 KBytes       
+[  5]  12.00-13.00  sec  60.5 MBytes   508 Mbits/sec   69   89.5 KBytes       
+[  5]  13.00-14.00  sec  56.8 MBytes   476 Mbits/sec   58   78.8 KBytes       
+[  5]  14.00-15.00  sec  57.8 MBytes   484 Mbits/sec   43    112 KBytes       
+[  5]  15.00-16.00  sec  57.4 MBytes   481 Mbits/sec   64   92.2 KBytes       
+[  5]  16.00-17.00  sec  55.6 MBytes   467 Mbits/sec   69   86.8 KBytes       
+[  5]  17.00-18.00  sec  58.6 MBytes   491 Mbits/sec   78   76.1 KBytes       
+[  5]  18.00-19.00  sec  62.6 MBytes   526 Mbits/sec   69   97.5 KBytes       
+[  5]  19.00-20.00  sec  61.4 MBytes   515 Mbits/sec   46    104 KBytes       
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-20.00  sec  1.15 GBytes   495 Mbits/sec  1187            sender
+[  5]   0.00-19.99  sec  1.15 GBytes   495 Mbits/sec                  receiver
+
+cpu占用率: 4核40%左右。
+
+❯ iperf3 -c peer-wg -t 20  -R
+Connecting to host peer-wg, port 5201
+Reverse mode, remote host peer-wg is sending
+[  5] local 10.200.103.2 port 34400 connected to 10.200.103.1 port 5201
+[ ID] Interval           Transfer     Bitrate
+[  5]   0.00-1.00   sec  53.4 MBytes   448 Mbits/sec                  
+[  5]   1.00-2.00   sec  47.0 MBytes   394 Mbits/sec                  
+[  5]   2.00-3.00   sec  54.5 MBytes   457 Mbits/sec                  
+[  5]   3.00-4.00   sec  53.8 MBytes   451 Mbits/sec                  
+[  5]   4.00-5.00   sec  54.6 MBytes   458 Mbits/sec                  
+[  5]   5.00-6.00   sec  52.4 MBytes   439 Mbits/sec                  
+[  5]   6.00-7.00   sec  49.8 MBytes   418 Mbits/sec                  
+[  5]   7.00-8.00   sec  56.8 MBytes   476 Mbits/sec                  
+[  5]   8.00-9.00   sec  58.0 MBytes   487 Mbits/sec                  
+[  5]   9.00-10.00  sec  55.8 MBytes   468 Mbits/sec                  
+[  5]  10.00-11.00  sec  52.0 MBytes   436 Mbits/sec                  
+[  5]  11.00-12.00  sec  50.9 MBytes   427 Mbits/sec                  
+[  5]  12.00-13.00  sec  55.8 MBytes   468 Mbits/sec                  
+[  5]  13.00-14.00  sec  55.1 MBytes   462 Mbits/sec                  
+[  5]  14.00-15.00  sec  55.1 MBytes   463 Mbits/sec                  
+[  5]  15.00-16.00  sec  58.5 MBytes   491 Mbits/sec                  
+[  5]  16.00-17.00  sec  58.1 MBytes   488 Mbits/sec                  
+[  5]  17.00-18.00  sec  56.5 MBytes   474 Mbits/sec                  
+[  5]  18.00-19.00  sec  58.4 MBytes   490 Mbits/sec                  
+[  5]  19.00-20.00  sec  56.5 MBytes   474 Mbits/sec                  
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-19.99  sec  1.07 GBytes   460 Mbits/sec  951            sender
+[  5]   0.00-20.00  sec  1.07 GBytes   458 Mbits/sec                  receiver
+
+iperf Done.
+
+cpu占用率: 4核50%左右。
+```
+
 ## `wireguard`和`tutuicmptunnel`
 
 `tutu_csum_fixup`: 没有启用`force_sw_checksum=1`
@@ -551,7 +635,9 @@ cpu占用率：4核60～70%
 | | **接收 (Receive)** | **0.746** | **-96.1%** | 中负载 (4核~60%) |
 | **5. WireGuard + mimic** | **发送 (Send)** | **3.06** | **-86.0%** | 高负载 (一核90%，其余3核10~20%) |
 | | **接收 (Receive)** | **3.09** | **-83.9%** | 高负载且均衡 (4核~60-70%) |
-| **6. WireGuard + tutuicmptunnel** | **发送 (Send)** | **4.42** | **-79.7%** | 高负载 (1核\~90-100%, 其余~20-30%) |
+| **6. WireGuard + pingtunnel** | **发送 (Send)** | **0.49** | **-97.8%** | 中负载 (4核~50%) |
+| | **接收 (Receive)** | **0.46** | **-97.6%** | 中负载 (4核~60%) |
+| **7. WireGuard + tutuicmptunnel** | **发送 (Send)** | **4.42** | **-79.7%** | 高负载 (1核\~90-100%, 其余~20-30%) |
 | | **接收 (Receive)** | **4.43** | **-77.0%** | 高负载且均衡 (4核~60-70%) |
 
 * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `udp2raw` (`0.841 Gbits/sec`) 的 `5.26` 倍。
@@ -560,4 +646,7 @@ cpu占用率：4核60～70%
 * `phantun`和`udp2raw`相差不大，发送略慢接受略快。注意到`phantun`可能由于其多核设计比`udp2raw`性能稳定点。
   * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `phantun` (`0.769 Gbits/sec`) 的 `5.75` 倍。
   * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `phantun` (`0.746 Gbits/sec`) 的 `5.94` 倍。
+* `pingtunnel`是使用`go`语言写的基于原始套接字的`IMCP`隧道工具，可转发`udp`/`tcp`/`socks5`。
+  * 在发送方向，`tutuicmptunnel` 跑出了 `4.42 Gbits/sec` 的成绩，是 `phantun` (`0.490 Gbits/sec`) 的 `9.02` 倍。
+  * 在接收方向，`tutuicmptunnel` 跑出了 `4.43 Gbits/sec` 的成绩，是 `phantun` (`0.460 Gbits/sec`) 的 `9.63` 倍。
 * `mimic`作为同为基于`bpf`的`udp`转`faketcp`工具，最大性能为`tutuicmptunnel`的70%左右。
