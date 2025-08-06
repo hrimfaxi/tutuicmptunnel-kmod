@@ -5,6 +5,7 @@
 #include <sodium.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <time.h>
 
 #include "common.h"
@@ -122,14 +123,15 @@ int replay_add(struct replay_window *rw, time_t ts, const uint8_t nonce[NONCE_LE
   return 0;
 }
 
-int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen, const char *psk, const char *payload,
-                            size_t payload_len, size_t *out_packet_len) {
+int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen, struct replay_window *rwin, const char *psk,
+                            const char *payload, size_t payload_len, size_t *out_packet_len) {
   int                err = 0;
   uint8_t            key[KEYB];
   uint8_t           *packet     = NULL;
   unsigned long long ct_len     = 0;
   size_t             packet_len = SALT_LEN + TS_LEN + NONCE_LEN + payload_len + TAG;
   packet                        = try2_p(malloc(packet_len), "malloc failed");
+  time_t ts                     = time(NULL);
 
   uint8_t *salt  = packet;
   uint8_t *ts_b  = salt + SALT_LEN;
@@ -137,7 +139,7 @@ int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen
   uint8_t *ct    = nonce + NONCE_LEN;
 
   randombytes_buf(salt, SALT_LEN);
-  uint64_t ts_resp = htobe64((uint64_t) time(NULL));
+  uint64_t ts_resp = htobe64((uint64_t) ts);
   memcpy(ts_b, &ts_resp, TS_LEN);
   randombytes_buf(nonce, NONCE_LEN);
 
@@ -146,6 +148,14 @@ int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen
                                                   NULL, nonce, key),
        "encryption failed: %d", _ret);
   try2(sendto(sock, packet, packet_len, 0, cli, clen), "sendto: %s", strret);
+
+  err = replay_add(rwin, ts, nonce);
+  if (err) {
+    char abuf[128];
+    try2(addr_to_str((struct sockaddr_storage *) cli, abuf, sizeof(abuf)));
+    log_error("cannot add to replay list: %s", abuf);
+    goto err_cleanup;
+  }
 
   if (out_packet_len)
     *out_packet_len = packet_len;

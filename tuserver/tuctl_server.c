@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
     resp[resp_len] = '\0'; // Ensure it's a null-terminated string for logging
     log_info("response: %zu bytes", resp_len);
 
-    if (encrypt_and_send_packet(sock, (struct sockaddr *) &cli, clen, psk, resp, resp_len, NULL)) {
+    if (encrypt_and_send_packet(sock, (struct sockaddr *) &cli, clen, &rwin, psk, resp, resp_len, NULL)) {
       log_error("failed to send response");
     }
   }

@@ -41,8 +41,8 @@ struct sockaddr_storage;
 int addr_to_str(const struct sockaddr_storage *addr, char *out, size_t len);
 int psk2key(const char *psk, const uint8_t *salt, uint8_t *key);
 int remove_padding(uint8_t *pt, unsigned long long *pt_len);
-int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen, const char *psk, const char *payload,
-                            size_t payload_len, size_t *out_packet_len);
+int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen, struct replay_window *rwin, const char *psk,
+                            const char *payload, size_t payload_len, size_t *out_packet_len);
 int decrypt_and_validate_packet(uint8_t *pt_out, unsigned long long *pt_len_out, const uint8_t *pkt_in, ssize_t pkt_len,
                                 struct replay_window *rwin, const char *psk, const struct sockaddr_storage *cli);
 

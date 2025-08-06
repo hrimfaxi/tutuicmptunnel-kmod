@@ -174,7 +174,8 @@ retry:;
   };
 
   try2(resolve_ip_addr(a.family, a.server, &dst.sin6_addr), "resolve_ip_addr: %s", strret);
-  try2(encrypt_and_send_packet(sock, (const struct sockaddr *) &dst, sizeof(dst), a.psk, (char *) cmd, cmd_len, &packet_len),
+  try2(encrypt_and_send_packet(sock, (const struct sockaddr *) &dst, sizeof(dst), &rwin, a.psk, (char *) cmd, cmd_len,
+                               &packet_len),
        "encrypt_and_send_packet: %s", strret);
   log_info("sent %zu bytes to %s:%d", packet_len, a.server, a.server_port);
 
