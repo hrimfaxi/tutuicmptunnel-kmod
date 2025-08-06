@@ -148,30 +148,39 @@ add_custom_target(
 )
 
 if (NOT USE_SYSTEM_LIBBPF_BPFTOOL)
+  set(LIBBPF_BUILD_DIR "${PROJECT_SOURCE_DIR}/libbpf/src")
+  set(LIBBPF_INSTALL_DIR "${LIBBPF_BUILD_DIR}/root/usr/lib64")
+  set(LIBBPF_A "${LIBBPF_INSTALL_DIR}/libbpf.a")
+
   add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libbpf_installed.stamp
+    OUTPUT ${LIBBPF_A}
     COMMAND BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=-I${CMAKE_SYSROOT}/usr/include -Wno-error ${CMAKE_C_FLAGS_RELEASE}" $(MAKE) install V=1
-    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/libbpf_installed.stamp
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/libbpf/src
+    WORKING_DIRECTORY ${LIBBPF_BUILD_DIR}
     COMMENT "Building and installing libbpf"
   )
 
   add_custom_target(
     build_libbpf
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libbpf_installed.stamp
+    DEPENDS ${LIBBPF_A}
   )
+  set_property(TARGET build_libbpf APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${LIBBPF_A}")
+
+  set(BPFTOOL_BUILD_DIR "${PROJECT_SOURCE_DIR}/bpftool/src")
+  set(BPFTOOL_INSTALL_DIR "${BPFTOOL_BUILD_DIR}/root/usr/local/sbin")
+  set(BPFTOOL_BIN "${BPFTOOL_INSTALL_DIR}/bpftool")
 
   add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/bpftool_installed.stamp
+    OUTPUT ${BPFTOOL_BIN}
     COMMAND DESTDIR=root $(MAKE) "EXTRA_CFLAGS=-Wno-error"  install
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/bpftool/src
+    WORKING_DIRECTORY ${BPFTOOL_BUILD_DIR}
     COMMENT "Building and installing bpftool"
   )
 
   add_custom_target(
     build_bpftool
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/bpftool_installed.stamp
+    DEPENDS ${BPFTOOL_BIN}
   )
+  set_property(TARGET build_bpftool APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${BPFTOOL_BIN}")
 
   add_dependencies(build_bpf build_libbpf)
   add_dependencies(build_libbpf build_bpftool)
