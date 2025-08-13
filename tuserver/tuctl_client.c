@@ -40,7 +40,7 @@ static int parse_dsl_args(int argc, char **argv, args_t *out) {
   int         family       = AF_UNSPEC;
   size_t      content_size = 0;
   uint16_t    max_retries  = 3;
-  uint32_t    window       = 5;
+  uint32_t    window       = 30;
   char       *psk_dup = NULL, *server_dup = NULL, *content = NULL;
 
   for (int i = 1; i < argc; ++i) {
