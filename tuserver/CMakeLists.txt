@@ -17,6 +17,5 @@ set(SERVER_SOURCES
 add_executable(tuctl_server ${SERVER_SOURCES})
 target_link_libraries(tuctl_server common pthread ${SODIUM_LIBRARY})
 install(TARGETS tuctl_server RUNTIME DESTINATION bin)
-install(TARGETS tuctl_client RUNTIME DESTINATION bin)
 
 # vim: set sw=2 expandtab :
