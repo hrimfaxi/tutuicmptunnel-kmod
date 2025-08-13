@@ -148,8 +148,15 @@ add_custom_target(
 )
 
 if (NOT USE_SYSTEM_LIBBPF_BPFTOOL)
+  include(CheckTypeSize)
+  check_type_size("void*" SIZEOF_VOID_P)
+  if(SIZEOF_VOID_P AND SIZEOF_VOID_P EQUAL 8)
+    set(_libdir "lib64")
+  else()
+    set(_libdir "lib")
+  endif()
   set(LIBBPF_BUILD_DIR "${PROJECT_SOURCE_DIR}/libbpf/src")
-  set(LIBBPF_INSTALL_DIR "${LIBBPF_BUILD_DIR}/root/usr/lib64")
+  set(LIBBPF_INSTALL_DIR "${LIBBPF_BUILD_DIR}/root/usr/${_libdir}")
   set(LIBBPF_A "${LIBBPF_INSTALL_DIR}/libbpf.a")
 
   add_custom_command(

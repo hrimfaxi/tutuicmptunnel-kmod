@@ -18,7 +18,7 @@ endif()
 if (USE_SYSTEM_LIBBPF_BPFTOOL)
   set (LIBBPF bpf)
 else()
-  set (LIBBPF ${PROJECT_SOURCE_DIR}/libbpf/src/root/usr/lib64/libbpf.a elf z)
+  set (LIBBPF ${LIBBPF_A} elf z)
   include_directories(../libbpf/src/root/usr/include)
 endif()
 
