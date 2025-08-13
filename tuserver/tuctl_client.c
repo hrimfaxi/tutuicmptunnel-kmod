@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
   char    cmd[MAX_PT_SIZE];
   uint8_t pt[MAX_PT_SIZE];
   int     timeout    = 5;
-  int     replay_max = 4096;
+  int     replay_max = DEFAULT_REPLAY_MAX;
 
   struct replay_window rwin;
   int                  rwin_inited = 0;

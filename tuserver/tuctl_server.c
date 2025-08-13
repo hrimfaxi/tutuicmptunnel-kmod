@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
   const char *port       = STR(DEFAULT_SERVER_PORT);
   char       *psk        = NULL;
   uint32_t    window     = DEFAULT_WINDOW;
-  uint32_t    replay_max = 4096;
+  uint32_t    replay_max = DEFAULT_REPLAY_MAX;
   int         err        = 0;
   int         sock       = -1;
 

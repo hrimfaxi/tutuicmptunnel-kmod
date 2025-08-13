@@ -23,6 +23,7 @@
 #define DEFAULT_SERVER      "127.0.0.1"
 #define DEFAULT_SERVER_PORT 14801
 #define DEFAULT_WINDOW      30
+#define DEFAULT_REPLAY_MAX  32768
 
 // --- 重放窗口链表 ---
 struct replay_entry {
