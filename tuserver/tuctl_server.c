@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
   const char *bind_addr  = "::";
   const char *port       = STR(DEFAULT_SERVER_PORT);
   char       *psk        = NULL;
-  uint32_t    window     = 30;
+  uint32_t    window     = DEFAULT_WINDOW;
   uint32_t    replay_max = 4096;
   int         err        = 0;
   int         sock       = -1;
