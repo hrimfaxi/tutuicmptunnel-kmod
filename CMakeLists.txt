@@ -159,9 +159,15 @@ if (NOT USE_SYSTEM_LIBBPF_BPFTOOL)
   set(LIBBPF_INSTALL_DIR "${LIBBPF_BUILD_DIR}/root/usr/${_libdir}")
   set(LIBBPF_A "${LIBBPF_INSTALL_DIR}/libbpf.a")
 
+  if(POLICY CMP0070)
+    list(JOIN HARDEN_C_FLAGS " " HARDEN_C_FLAGS_STR)
+  else()
+    string(REPLACE ";" " " HARDEN_C_FLAGS_STR "${HARDEN_C_FLAGS}")
+  endif()
+
   add_custom_command(
     OUTPUT ${LIBBPF_A}
-    COMMAND BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=-I${CMAKE_SYSROOT}/usr/include -Wno-error ${CMAKE_C_FLAGS_RELEASE} -fPIE" $(MAKE) install V=1
+    COMMAND BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=root CC=${CMAKE_C_COMPILER} "EXTRA_CFLAGS=-I${CMAKE_SYSROOT}/usr/include -Wno-error ${CMAKE_C_FLAGS_RELEASE} ${HARDEN_C_FLAGS_STR}" $(MAKE) install V=1
     WORKING_DIRECTORY ${LIBBPF_BUILD_DIR}
     COMMENT "Building and installing libbpf"
   )
