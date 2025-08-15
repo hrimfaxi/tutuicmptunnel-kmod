@@ -266,7 +266,7 @@ int escapestr(const char *str, char **escaped) {
   if (!str || !escaped)
     return -EINVAL;
 
-  size_t in_len = strlen(str);
+  size_t in_len  = strlen(str);
   size_t out_max = in_len * 2 + 1;
 
   char *buf = malloc(out_max);
@@ -277,18 +277,18 @@ int escapestr(const char *str, char **escaped) {
   for (size_t i = 0; i < in_len; ++i) {
     char c = str[i];
     switch (c) {
-      case '"':
-      case '\'':
-      case '\\':
-      case '$':
-        buf[j++] = '\\';
-      // fallthrough
-      default:
-        buf[j++] = c;
+    case '"':
+    case '\'':
+    case '\\':
+    case '$':
+      buf[j++] = '\\';
+    // fallthrough
+    default:
+      buf[j++] = c;
     }
   }
 
-  buf[j] = '\0';
+  buf[j]   = '\0';
   *escaped = buf;
   return 0;
 }
