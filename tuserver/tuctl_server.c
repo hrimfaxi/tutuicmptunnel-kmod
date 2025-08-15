@@ -5,6 +5,7 @@
 #include <sodium.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -210,6 +211,9 @@ int main(int argc, char **argv) {
   replay_window_init(&rwin, window, replay_max);
   rwin_inited = 1;
 
+  rate_limiter_t rl;
+  rl_init(&rl);
+
   // Main processing loop
   while (1) {
     struct sockaddr_storage cli;
@@ -220,6 +224,15 @@ int main(int argc, char **argv) {
     ssize_t len = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *) &cli, &clen);
     if (len < 0) {
       perror("recvfrom");
+      continue;
+    }
+
+    // 先按来源限速，超过速率直接丢包
+    if (!rl_allow(&rl, &cli)) {
+      char abuf[128];
+      if (addr_to_str(&cli, abuf, sizeof(abuf)) == 0) {
+        log_info("too many requests from %s, dropping", abuf);
+      }
       continue;
     }
 

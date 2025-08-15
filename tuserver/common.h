@@ -54,4 +54,41 @@ void replay_window_free(struct replay_window *rw);
 int  replay_check(struct replay_window *rw, time_t ts, const uint8_t nonce[NONCE_LEN]);
 int  replay_add(struct replay_window *rw, time_t ts, const uint8_t nonce[NONCE_LEN]);
 
+// 限制访问
+#ifndef RL_TABLE_SIZE
+#define RL_TABLE_SIZE 2048 // 槽位数（2^n 最好），嵌入式可调小些
+#endif
+#ifndef RL_BURST_TOKENS
+#define RL_BURST_TOKENS 20.0 // 突发上限 B
+#endif
+#ifndef RL_REFILL_RATE
+#define RL_REFILL_RATE 5.0 // 平均速率 r（tokens/秒），例如 5 pps
+#endif
+#ifndef RL_IDLE_EVICT_SEC
+#define RL_IDLE_EVICT_SEC 60 // 空闲多久可被淘汰
+#endif
+// 若希望按“IP+端口”限速，置为 1
+#undef RL_INCLUDE_PORT
+// #define RL_INCLUDE_PORT 1
+
+typedef struct {
+  uint8_t  in_use;
+  uint8_t  family; // AF_INET / AF_INET6
+  uint16_t port;   // 可选：通常不用端口
+  union {
+    struct in_addr  v4;
+    struct in6_addr v6;
+  } addr;
+  double   tokens;         // 当前可用令牌
+  uint64_t last_refill_ns; // 上次补充时间
+  uint64_t last_seen_ns;   // 最近访问时间
+} rl_entry_t;
+
+typedef struct {
+  rl_entry_t entries[RL_TABLE_SIZE];
+} rate_limiter_t;
+
+void rl_init(rate_limiter_t *rl);
+int  rl_allow(rate_limiter_t *rl, const struct sockaddr_storage *sa);
+
 // vim: set sw=2 expandtab :

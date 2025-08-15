@@ -11,6 +11,7 @@ install(TARGETS tuctl_client RUNTIME DESTINATION bin)
 
 set(SERVER_SOURCES
   tuctl_server.c
+  ratelimiter.c
   common.c
   log.c
 )
