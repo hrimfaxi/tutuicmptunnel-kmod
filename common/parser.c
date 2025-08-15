@@ -12,7 +12,7 @@
 int parse_u16(const char *input, uint16_t *out_u16) {
   char *endptr = NULL;
   long  value  = strtol(input, &endptr, 0);
-  if (!endptr || *endptr || value < 0 || value > 65535) {
+  if (endptr == input || *endptr || value < 0 || value > 65535) {
     log_error("Invalid u16: %s", input);
     return -EINVAL;
   }
@@ -63,7 +63,7 @@ int parse_u32(const char *input, uint32_t *out_u32) {
 
   errno = 0; // 复位errno： strtoul函数本身不保证成功时设置errno=0
   ulong_val = strtoul(input, &endptr, 0);
-  if (!endptr || *endptr || errno == ERANGE || ulong_val > UINT32_MAX) {
+  if (endptr == input || *endptr || errno == ERANGE || ulong_val > UINT32_MAX) {
     log_error("Invalid u32: %s", input);
     return -EINVAL;
   }
