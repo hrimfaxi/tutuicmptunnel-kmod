@@ -58,14 +58,17 @@ int parse_uid(const char *input, uint8_t *out_uid) {
 }
 
 int parse_u32(const char *input, uint32_t *out_u32) {
-  char *endptr  = NULL;
-  long  u32_val = strtol(input, &endptr, 0);
-  if (!endptr || *endptr || u32_val < 0 || u32_val > (long) UINT32_MAX) {
+  char         *endptr    = NULL;
+  unsigned long ulong_val;
+
+  errno = 0; // 复位errno： strtoul函数本身不保证成功时设置errno=0
+  ulong_val = strtoul(input, &endptr, 0);
+  if (!endptr || *endptr || errno == ERANGE || ulong_val > UINT32_MAX) {
     log_error("Invalid u32: %s", input);
     return -EINVAL;
   }
 
-  *out_u32 = (typeof(*out_u32)) u32_val;
+  *out_u32 = (typeof(*out_u32)) ulong_val;
   return 0;
 }
 
