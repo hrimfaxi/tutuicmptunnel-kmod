@@ -48,6 +48,8 @@ int encrypt_and_send_packet(int sock, const struct sockaddr *cli, socklen_t clen
 int decrypt_and_validate_packet(uint8_t *pt_out, unsigned long long *pt_len_out, const uint8_t *pkt_in, ssize_t pkt_len,
                                 struct replay_window *rwin, const char *psk, const struct sockaddr_storage *cli);
 
+void setup_pwhash_memlimit(void);
+
 // 重放相关
 void replay_window_init(struct replay_window *rw, int window, int max_size);
 void replay_window_free(struct replay_window *rw);

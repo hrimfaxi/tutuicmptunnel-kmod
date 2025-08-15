@@ -10,6 +10,7 @@
 
 #include "common.h"
 #include "log.h"
+#include "parser.h"
 #include "try.h"
 
 // 地址字符串化
@@ -27,9 +28,27 @@ err_cleanup:
   return err;
 }
 
+static size_t pwhash_memlimit = crypto_pwhash_MEMLIMIT_INTERACTIVE;
+
 int psk2key(const char *psk, const uint8_t *salt, uint8_t *key) {
-  return crypto_pwhash(key, KEYB, psk, strlen(psk), salt, crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                       crypto_pwhash_MEMLIMIT_INTERACTIVE, crypto_pwhash_ALG_ARGON2ID13);
+  return crypto_pwhash(key, KEYB, psk, strlen(psk), salt, crypto_pwhash_OPSLIMIT_INTERACTIVE, pwhash_memlimit,
+                       crypto_pwhash_ALG_ARGON2ID13);
+}
+
+void setup_pwhash_memlimit(void) {
+  uint32_t out = 0;
+  char    *p   = getenv("TUTUICMPTUNNEL_PWHASH_MEMLIMIT");
+
+  if (!p)
+    return;
+
+  if (parse_u32(p, &out)) {
+    log_error("invalid pwhash memory limit value: %s", p);
+    return;
+  }
+
+  pwhash_memlimit = (size_t) out;
+  log_info("pwhash memory limit set to %zu", pwhash_memlimit);
 }
 
 int remove_padding(uint8_t *pt, unsigned long long *pt_len) {

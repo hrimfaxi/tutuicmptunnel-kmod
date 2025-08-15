@@ -198,6 +198,8 @@ int main(int argc, char **argv) {
   struct replay_window rwin;
   int                  rwin_inited = 0;
 
+  setup_pwhash_memlimit();
+
   try2(sodium_init(), "libsodium init failed: %s", "unknown error");
   try2(parse_arguments(argc, argv, &bind_addr, &port, &psk, &window, &replay_max));
   wipe_argv_psk(argc, argv, psk);

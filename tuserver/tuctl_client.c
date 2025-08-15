@@ -143,6 +143,8 @@ int main(int argc, char **argv) {
   struct replay_window rwin;
   int                  rwin_inited = 0;
 
+  setup_pwhash_memlimit();
+
   try2(sodium_init(), "sodium initialize failed: %d", _ret);
   try2(parse_dsl_args(argc, argv, &a));
 
