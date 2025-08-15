@@ -72,7 +72,7 @@ local function run_stdin_capture_stdout_stderr(cmd_table, stdin_data)
     while pos <= len do
       local chunk = stdin_data:sub(pos, pos + 4095)
       local wrote, err = in_w:write(chunk)
-      if not wrote then
+      if not wrote or err ~= nil then
         -- 写失败：关闭写端并等待子进程，返回 false
         xclose(in_w)
         nixio.waitpid(pid)
