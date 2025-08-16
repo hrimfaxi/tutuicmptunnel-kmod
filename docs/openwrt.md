@@ -89,3 +89,22 @@ modprobe tutu_csum_fixup
 ```
 
 此时就可以在`openwrt`设备上使用`tuctl`，`tuctl_client`等程序。
+
+## tuctl_client内存使用量问题
+
+在内存受限的设备上，可通过降低密码哈希的内存占用来减少`tuctl_client`的内存使用。
+设置环境变量`TUTUICMPTUNNEL_PWHASH_MEMLIMIT`（单位：字节）即可实现。
+
+示例
+
+    服务器（单元文件）：
+    Environment=TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768
+
+    客户端：
+    TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768 tuctl_client ...
+
+要点
+
+    服务器与客户端必须使用相同的数值，否则将无法建立通信。
+    该参数数值越小，内存占用越低，但安全性也会相应下降，请根据设备能力和风险评估进行权衡。
+    服务器与客户端的TUTUICMPTUNNEL_PWHASH_MEMLIMIT必须一致；不一致将导致握手失败、无法通信。
