@@ -53,8 +53,10 @@ int parse_uid(const char *input, uint8_t *out_uid) {
   if (err)
     return err;
 
-  if (tmp > 255)
+  if (tmp > 255) {
+    log_error("Invalid UID: %s", input);
     return -EINVAL;
+  }
 
   *out_uid = (typeof(*out_uid)) tmp;
   return err;
@@ -81,7 +83,12 @@ int parse_age(const char *input, uint32_t *out_age) {
   if (err)
     return err;
 
-  return *out_age ? 0 : -EINVAL;
+  if (*out_age == 0) {
+    log_error("Invalid age: %s", input);
+    return -EINVAL;
+  }
+
+  return 0;
 }
 
 int parse_window(const char *input, uint32_t *out_window) {
@@ -90,7 +97,12 @@ int parse_window(const char *input, uint32_t *out_window) {
   if (err)
     return err;
 
-  return *out_window ? 0 : -EINVAL;
+  if (*out_window == 0) {
+    log_error("Invalid window: %s", input);
+    return -EINVAL;
+  }
+
+  return 0;
 }
 
 void strip_inline_comment(char *s) {
