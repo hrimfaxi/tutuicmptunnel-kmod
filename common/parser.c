@@ -10,9 +10,12 @@
 #include "try.h"
 
 int parse_u16(const char *input, uint16_t *out_u16) {
-  char *endptr = NULL;
-  long  value  = strtol(input, &endptr, 0);
-  if (endptr == input || *endptr || value < 0 || value > 65535) {
+  char         *endptr = NULL;
+  unsigned long value;
+
+  errno = 0;
+  value = strtoul(input, &endptr, 0);
+  if (endptr == input || *endptr || errno == ERANGE || value > UINT16_MAX) {
     log_error("Invalid u16: %s", input);
     return -EINVAL;
   }
