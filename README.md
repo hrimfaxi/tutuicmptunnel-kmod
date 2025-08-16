@@ -39,7 +39,7 @@ Since these applications already provide encryption and integrity checks, `tutui
 `tutuicmptunnel` does not modify the payload of data packets, nor does it add extra `IP` headers.
 Forwarding rules on the server are configured entirely by the user manually adding the aforementioned 3-tuples via commands.
 
-The client can invoke server commands via `SSH`: using the `tuctl` command to manually modify the 3-tuples (including updating the client's own `IP` address).
+The client can invoke server commands via `SSH`: using the [tuctl](tuctl/README.md) command to manually modify the 3-tuples (including updating the client's own `IP` address).
 To facilitate dynamic updates, the `tuctl_client` tool can be used to synchronize configuration via the UDP protocol, allowing the client to notify the server of its new IP and port information.
 
 `tuctl_server` and `tuctl_client` communicate over UDP, using a timestamp-based mechanism combined with the `XChaCha20-Poly1305` encryption algorithm, `Argon2id` key derivation function, and a Pre-Shared Key (`PSK`) for secure authentication. This scheme enables clients to securely and efficiently notify the server of new configuration information in real-time.
