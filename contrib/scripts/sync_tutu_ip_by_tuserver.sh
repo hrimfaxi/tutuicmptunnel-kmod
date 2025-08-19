@@ -41,7 +41,7 @@ validate_ip() {
   return $stat
 }
 
-IP=$(curl -s ip.3322.net)
+IP=$(curl -4s ip.3322.net)
 if ! validate_ip "$IP"; then
   echo "验证失败：'$IP' 不是一个有效的 IPv4 地址。"
   exit 1
