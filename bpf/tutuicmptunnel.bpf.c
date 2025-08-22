@@ -305,15 +305,11 @@ static __always_inline __sum16 udp_header_sum(struct udphdr *udp) {
 
 static __always_inline void ipv4_to_ipv6_mapped(__be32 ipv4, struct in6_addr *ipv6) {
 #ifdef __mips__
-#pragma unroll
-  for (int i = 0; i < 10; i++)
-    ipv6->in6_u.u6_addr8[i] = 0;
+  __builtin_memset(ipv6->in6_u.u6_addr8, 0, 10);
   ipv6->in6_u.u6_addr8[10] = 0xff;
   ipv6->in6_u.u6_addr8[11] = 0xff;
 
-#pragma unroll
-  for (int i = 0; i < 4; i++)
-    ipv6->in6_u.u6_addr8[12 + i] = ((__u8 *) &ipv4)[i];
+  __builtin_memcpy(ipv6->in6_u.u6_addr8 + 12, &ipv4, sizeof(ipv4));
 #else
   ipv6->s6_addr32[0] = 0;
   ipv6->s6_addr32[1] = 0;
@@ -324,10 +320,7 @@ static __always_inline void ipv4_to_ipv6_mapped(__be32 ipv4, struct in6_addr *ip
 
 static __always_inline void ipv6_copy(struct in6_addr *dst, const struct in6_addr *src) {
 #ifdef __mips__
-#pragma unroll
-  for (int i = 0; i < sizeof(*dst); i++) {
-    *(((__u8 *) dst) + i) = *(((__u8 *) src) + i);
-  }
+  __builtin_memcpy((void *) (volatile __u8 *) dst, (const void *) (volatile __u8 *) src, sizeof(*dst));
 #else
   *dst = *src;
 #endif
