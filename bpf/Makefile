@@ -76,8 +76,13 @@ tutuicmptunnel.debug.skel.h: tutuicmptunnel.debug.bpf.o
 # Generate vmlinux.h (only if BTF is enabled)
 ifeq ($(USE_BTF),1)
 vmlinux.h:
-	@echo "Generating vmlinux.h..."
-	$(Q)$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
+	@if command -v $(BPFTOOL) >/dev/null 2>&1 ; then \
+	  echo "Generating vmlinux.h..."; \
+	  $(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@; \
+	else \
+	  echo "Error: $(BPFTOOL) not found or not executable"; \
+	  exit 1; \
+	fi;
 endif
 
 # Update dependencies
