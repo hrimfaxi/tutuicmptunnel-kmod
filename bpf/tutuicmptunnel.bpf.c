@@ -86,14 +86,14 @@ struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __type(key, struct egress_peer_key);
   __type(value, struct egress_peer_value);
-  __uint(max_entries, 256);
+  __uint(max_entries, 1024);
 } egress_peer_map SEC(".maps");
 
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __type(key, struct ingress_peer_key);
   __type(value, struct ingress_peer_value);
-  __uint(max_entries, 256);
+  __uint(max_entries, 1024);
 } ingress_peer_map SEC(".maps");
 
 // Configuration map
