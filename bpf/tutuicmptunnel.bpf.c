@@ -326,6 +326,17 @@ static __always_inline void ipv6_copy(struct in6_addr *dst, const struct in6_add
 #endif
 }
 
+static __always_inline int ipv6_equal(const struct in6_addr *a, const struct in6_addr *b) {
+#ifdef __mips__
+  return __builtin_memcmp((void *) (volatile __u8 *) a, (const void *) (volatile __u8 *) b, sizeof(*a)) == 0;
+#else
+  const __u32 *pa = (const __u32 *) a->s6_addr32;
+  const __u32 *pb = (const __u32 *) b->s6_addr32;
+
+  return (pa[0] == pb[0]) & (pa[1] == pb[1]) & (pa[2] == pb[2]) & (pa[3] == pb[3]);
+#endif
+}
+
 static __always_inline void dump_skb(struct __sk_buff *skb) {
 #ifdef BPF_DEBUG
   int len = skb->len;
@@ -1056,24 +1067,16 @@ err_cleanup:
   return err;
 }
 
-static __always_inline int update_session_map(struct user_info *user, __u8 uid, struct iphdr *ipv4, struct ipv6hdr *ipv6) {
+static __always_inline int update_session_map(struct user_info *user, __u8 uid) {
   int   err;
   __u64 now = (bpf_ktime_get_ns() / NS_PER_SEC); // 当前时间（秒）
   // 更新icmp_id而非sport, 因为此时为nat转换后的源端口
-  struct session_key   insert = {.dport = user->dport, .sport = user->icmp_id};
+  struct session_key   insert = {.dport = user->dport, .sport = user->icmp_id, .address = user->address};
   struct session_value value  = {
      .uid = uid,
      .age = now,
   };
   struct session_value *exist;
-
-  if (ipv4) {
-    struct in6_addr in6;
-    ipv4_to_ipv6_mapped(get_unaligned(&ipv4->saddr), &in6);
-    insert.address = in6;
-  } else if (ipv6) {
-    ipv6_copy(&insert.address, &ipv6->saddr);
-  }
 
   exist = bpf_map_lookup_elem(&session_map, &insert);
   if (exist) {
@@ -1151,6 +1154,15 @@ int handle_ingress(struct __sk_buff *skb) {
     // Find user by UID
     user = try2_p_ok(bpf_map_lookup_elem(&user_map, &uid), "cannot get user: %u", uid);
 
+    // 验证客户端地址与用户配置地址相等
+    if (ipv4) {
+      struct in6_addr in6;
+      ipv4_to_ipv6_mapped(get_unaligned(&ipv4->saddr), &in6);
+      try2_ok(ipv6_equal(&user->address, &in6) ? 0 : -1, "unrelated client ipv4 address");
+    } else if (ipv6) {
+      try2_ok(ipv6_equal(&user->address, &ipv6->saddr) ? 0 : -1, "unrelated client ipv6 address");
+    }
+
     // 优化：只有发生变化才需要更新user_map
     // icmp_id：客户端更新了icmp_id，此时需要更新
     // icmp_seq: 客户端切换了源端口，此时需要更新
@@ -1162,7 +1174,7 @@ int handle_ingress(struct __sk_buff *skb) {
     }
 
     // 需要更新session_map
-    update_session_map(user, uid, ipv4, ipv6);
+    try2_ok(update_session_map(user, uid), "update session map: %d", _ret);
   } else {
     if (ipv4) {
       try_ok(icmp->type == ICMP_ECHO_REPLY ? 0 : -1);
