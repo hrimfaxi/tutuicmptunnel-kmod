@@ -1069,21 +1069,21 @@ err_cleanup:
 
 static __always_inline int update_session_map(struct user_info *user, __u8 uid) {
   int   err;
-  __u64 now = (bpf_ktime_get_ns() / NS_PER_SEC); // 当前时间（秒）
   // 更新icmp_id而非sport, 因为此时为nat转换后的源端口
   struct session_key   insert = {.dport = user->dport, .sport = user->icmp_id, .address = user->address};
-  struct session_value value  = {
-     .uid = uid,
-     .age = now,
-  };
-  struct session_value *exist;
+  struct session_value *exist = bpf_map_lookup_elem(&session_map, &insert);
 
-  exist = bpf_map_lookup_elem(&session_map, &insert);
+  __u64 now = (bpf_ktime_get_ns() / NS_PER_SEC); // 当前时间（秒）
   if (exist) {
     // 优化性能: 如果寿命小于1秒，不用更新
     if (now - exist->age <= 1)
       return 0;
   }
+
+  struct session_value value  = {
+     .uid = uid,
+     .age = now,
+  };
 
   // 不存在或者寿命大于1秒，更新
   err = bpf_map_update_elem(&session_map, &insert, &value, BPF_ANY);
