@@ -41,11 +41,14 @@ validate_ip() {
   return $stat
 }
 
-IP=$(curl -4s ip.3322.net)
-if ! validate_ip "$IP"; then
-  echo "验证失败：'$IP' 不是一个有效的 IPv4 地址。"
-  exit 1
+if [ -z "$IP" ]; then
+  IP=$(curl -4s ip.3322.net)
+  if ! validate_ip "$IP"; then
+    echo "验证失败：'$IP' 不是一个有效的 IPv4 地址。"
+    exit 1
+  fi
 fi
+# TODO: 没有检查ipv6地址的合法性
 echo local ip: $IP
 
 V() {
