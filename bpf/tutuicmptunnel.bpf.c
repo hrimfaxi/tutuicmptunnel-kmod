@@ -635,7 +635,7 @@ static __always_inline int check_age(struct config *cfg, struct session_key *loo
     int err;
 
     value_ptr->age = now;
-    err            = bpf_map_update_elem(&session_map, lookup_key, value_ptr, BPF_ANY);
+    err            = bpf_map_update_elem(&session_map, lookup_key, value_ptr, BPF_EXIST);
     (void) err;
     TUTU_LOG("session updated: age: %lu: %d", now, err);
   }
@@ -1068,10 +1068,10 @@ err_cleanup:
 }
 
 static __always_inline int update_session_map(struct user_info *user, __u8 uid) {
-  int   err;
+  int err;
   // 更新icmp_id而非sport, 因为此时为nat转换后的源端口
-  struct session_key   insert = {.dport = user->dport, .sport = user->icmp_id, .address = user->address};
-  struct session_value *exist = bpf_map_lookup_elem(&session_map, &insert);
+  struct session_key    insert = {.dport = user->dport, .sport = user->icmp_id, .address = user->address};
+  struct session_value *exist  = bpf_map_lookup_elem(&session_map, &insert);
 
   __u64 now = (bpf_ktime_get_ns() / NS_PER_SEC); // 当前时间（秒）
   if (exist) {
@@ -1080,9 +1080,9 @@ static __always_inline int update_session_map(struct user_info *user, __u8 uid) 
       return 0;
   }
 
-  struct session_value value  = {
-     .uid = uid,
-     .age = now,
+  struct session_value value = {
+    .uid = uid,
+    .age = now,
   };
 
   // 不存在或者寿命大于1秒，更新
@@ -1170,7 +1170,7 @@ int handle_ingress(struct __sk_buff *skb) {
       user->icmp_id = icmp_id;
       user->sport   = icmp_seq;
       // Update user info
-      bpf_map_update_elem(&user_map, &uid, user, BPF_ANY);
+      bpf_map_update_elem(&user_map, &uid, user, BPF_EXIST);
     }
 
     // 需要更新session_map
