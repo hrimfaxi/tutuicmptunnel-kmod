@@ -52,7 +52,7 @@
 sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-tools libsodium-dev libelf-dev
 ```
 
-注意：如果你安装的不是标准`ubuntu`内核，请安装对应内核的`linux-tools`。
+注意：如果你安装的不是标准`ubuntu`内核，请安装对应内核的`linux-tools`。或者放弃使用官方`bpftool`，在`cmake`配置时使用参数`-DUSE_SYSTEM_LIBBPF_BPFTOOL=0`。
 
 ### `Arch Linux`
 
@@ -74,6 +74,7 @@ sudo pacman -S git base-devel libbpf clang cmake libsodium dkms libsodium
 
 ```sh
 git clone https://github.com/hrimfaxi/tutuicmptunnel
+cd tutuicmptunnel
 cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 -DUSE_SYSTEM_LIBBPF_BPFTOOL=1 .
 ```
 

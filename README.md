@@ -57,6 +57,7 @@ sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-too
 ```
 
 Note: If you are not using the standard `ubuntu` kernel, please install the corresponding `linux-tools` for your kernel.
+Or you can compile your own `bpftool` with cmake option: `-DUSE_SYSTEM_LIBBPF_BPFTOOL=0`.
 
 ### `Arch Linux`
 
@@ -77,6 +78,7 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
 
     ```sh
     git clone https://github.com/hrimfaxi/tutuicmptunnel
+    cd tutuicmptunnel
     cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 -DUSE_SYSTEM_LIBBPF_BPFTOOL=1 .
     ```
 
