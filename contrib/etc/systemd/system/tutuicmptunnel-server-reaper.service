@@ -1,6 +1,0 @@
-[Unit]
-Description=Reap tutuicmptunnel sessions
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'tuctl reaper'

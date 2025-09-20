@@ -2,8 +2,10 @@ KVER ?= $(if $(KERNELRELEASE),$(KERNELRELEASE),$(shell uname -r))
 KSRC ?= $(if $(KERNEL_SRC),$(KERNEL_SRC),/lib/modules/$(KVER)/build)
 pwd=$(shell pwd)
 
-obj-m := tutu_csum_fixup.o
-EXTRA_CFLAGS := -g -Wall -Wuninitialized -Wno-unused-parameter -Wno-type-limits -DMIMIC_KMOD=1
+obj-m := tutuicmptunnel.o
+tutuicmptunnel-objs := tutu.o hashtab.o
+
+EXTRA_CFLAGS := -g -Wall -Wuninitialized -Wno-unused-parameter -Wno-type-limits
 
 all:
 	make -C $(KSRC) M=$(pwd) modules
@@ -20,4 +22,4 @@ dkms:
 	dkms autoinstall
 
 dkms-remove:
-	dkms remove tutu_csum_fixup/@tutuicmptunnel_VERSION@ --all
+	dkms remove tutuicmptunnel/@tutuicmptunnel_VERSION@ --all

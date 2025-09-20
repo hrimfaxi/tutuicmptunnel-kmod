@@ -1,0 +1,24 @@
+[Unit]
+Description=tutuicmptunnel-kmod client loader for %i
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/tutuicmptunnel-client-%i
+ExecStartPre=/bin/bash -c 'modprobe tutuicmptunnel || true'
+ExecStartPre=/bin/mkdir -p /etc/tutuicmptunnel
+ExecStart=bash -c '\
+    if [ -f /etc/tutuicmptunnel/config ]; then  \
+        exec ktuctl script /etc/tutuicmptunnel/config; \
+    else  \
+        exec ktuctl client; \
+    fi'
+ExecStop=/bin/bash -c 'tmpfile=$(mktemp); if ktuctl dump > "$tmpfile"; then mv "$tmpfile" /etc/tutuicmptunnel/config; else rm -f "$tmpfile"; fi'
+ExecStop=/bin/bash -c 'modprobe -r tutuicmptunnel || true'
+RemainAfterExit=yes
+
+StandardOutput=journal
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

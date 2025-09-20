@@ -1,6 +1,5 @@
 set(SOURCES
   tuctl.c
-  auto_pin.c
   log.c
   uid_map.c
 )
@@ -8,21 +7,11 @@ set(SOURCES
 get_filename_component(PROG_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
 include_directories(../bpf)
+include_directories(../kmod)
 add_definitions(-DPROG_NAME=${PROG_NAME})
 add_executable(${PROG_NAME} ${SOURCES})
 
-if (DISABLE_BPF_TIMER)
-  add_definitions(-DDISABLE_BPF_TIMER=1)
-endif()
-
-if (USE_SYSTEM_LIBBPF_BPFTOOL)
-  set (LIBBPF bpf)
-else()
-  set (LIBBPF ${LIBBPF_A} elf z)
-  include_directories(../libbpf/src/root/usr/include)
-endif()
-
-target_link_libraries(${PROG_NAME} common pthread ${LIBBPF})
+target_link_libraries(${PROG_NAME} common pthread)
 
 install(TARGETS ${PROG_NAME} RUNTIME DESTINATION sbin)
 # vim: set sw=2 expandtab :

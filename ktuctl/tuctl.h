@@ -1,10 +1,9 @@
 #pragma once
 
+#include <linux/types.h>
 #include <netinet/in.h>
 #include <unistd.h>
 
-#include "tutuicmptunnel.debug.skel.h"
-#include "tutuicmptunnel.skel.h"
 #define _STR(x) #x
 #define STR(x)  _STR(x)
 

@@ -1,0 +1,4 @@
+#!/bin/sh
+
+sudo rmmod tutuicmptunnel.ko 2>/dev/null
+sudo insmod tutuicmptunnel.ko
