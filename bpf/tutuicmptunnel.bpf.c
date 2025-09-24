@@ -912,10 +912,10 @@ int handle_egress(struct __sk_buff *skb) {
     };
 
     if (ipv4) {
-      TUTU_LOG("egress: udp: 0x%08x:%u", bpf_ntohl(get_unaligned(&ipv4->saddr)), udp->dest);
+      TUTU_LOG("egress: udp: 0x%08x:%5u", bpf_ntohl(get_unaligned(&ipv4->saddr)), udp->dest);
       ipv4_to_ipv6_mapped(get_unaligned(&ipv4->daddr), &peer_key.address);
     } else if (ipv6) {
-      TUTU_LOG("egress: udp: src 0x%016llx%016llx id %u", bpf_be64_to_cpu(get_unaligned64(&ipv6->saddr.s6_addr[0])),
+      TUTU_LOG("egress: udp: src 0x%016llx%016llx:%5u", bpf_be64_to_cpu(get_unaligned64(&ipv6->saddr.s6_addr[0])),
                bpf_be64_to_cpu(get_unaligned64(&ipv6->saddr.s6_addr[8])), udp->dest);
       ipv6_copy(&peer_key.address, &ipv6->daddr);
     }
