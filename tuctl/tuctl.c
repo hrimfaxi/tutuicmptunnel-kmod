@@ -192,8 +192,8 @@ static int run_gc_timer(void) {
 
   gc_timer_fd = try2(bpf_obj_get(HANDLE_GC_TIMER_PATH), _("bpf_obj_get: %s: %s"), HANDLE_GC_TIMER_PATH, strret);
   try2(bpf_prog_test_run_opts(gc_timer_fd, &opts), "bpf_prog_test_run_opts: %s", strret);
-  err = 0;
 
+  err = 0;
 err_cleanup:
   if (gc_timer_fd >= 0)
     close(gc_timer_fd);
@@ -208,6 +208,7 @@ static int gc_switch(bool on) {
 
   gc_switch_map_fd = try2(bpf_obj_get(GC_SWITCH_MAP_PATH), _("bpf_obj_get: %s: %s"), GC_SWITCH_MAP_PATH, strret);
   try2(set_gc_switch_map(gc_switch_map_fd, &gc_switch), _("set_gc_switch_map: %s"), strret);
+
   err = 0;
 err_cleanup:
   if (gc_switch_map_fd >= 0)
@@ -343,8 +344,8 @@ int cmd_client(int argc, char **argv) {
     .no_fixup  = no_fixup,
   };
   try2(set_config_map(config_map_fd, &cfg));
-  err = 0;
 
+  err = 0;
 err_cleanup:
   if (config_map_fd >= 0)
     close(config_map_fd);
@@ -361,8 +362,8 @@ static int get_server_mode(bool *server) {
 
   if (server)
     *server = cfg.is_server;
-  err = 0;
 
+  err = 0;
 err_cleanup:
   if (config_map_fd >= 0)
     close(config_map_fd);
@@ -502,6 +503,7 @@ int cmd_client_add(int argc, char **argv) {
     free(uidstr);
   }
 
+  err = 0;
 err_cleanup:
   if (egress_peer_map_fd >= 0)
     close(egress_peer_map_fd);
@@ -614,6 +616,7 @@ int cmd_client_del(int argc, char **argv) {
     log_info("client peer: %s address %s not found", uidstr, address);
   free(uidstr);
 
+  err = 0;
 err_cleanup:
   if (ingress_peer_map_fd >= 0)
     close(ingress_peer_map_fd);
@@ -766,6 +769,7 @@ int cmd_server_add(int argc, char **argv) {
     free(uidstr);
   }
 
+  err = 0;
 err_cleanup:
   if (user_map_fd >= 0)
     close(user_map_fd);
@@ -846,6 +850,8 @@ int cmd_server_del(int argc, char **argv) {
   try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
   log_info("server deleted: %s", uidstr);
   free(uidstr);
+
+  err = 0;
 err_cleanup:
   if (user_map_fd >= 0)
     close(user_map_fd);
@@ -1046,7 +1052,6 @@ int cmd_status(int argc, char **argv) {
   }
 
   err = 0;
-
 err_cleanup:
   if (ingress_peer_map_fd >= 0)
     close(ingress_peer_map_fd);
@@ -1163,7 +1168,6 @@ int cmd_dump(int argc, char **argv) {
   }
 
   err = 0;
-
 err_cleanup:
   if (peer_map_fd >= 0)
     close(peer_map_fd);
