@@ -1,19 +1,19 @@
-# tutuicmptunnel
+# tutuicmptunnel-kmod
 
-基于 `bpf` 的 `UDP` 转 `ICMP` 隧道工具，可作为 `udp2raw` `ICMP` 模式的替代方案。
+基于 `nftables` 的 `UDP` 转 `ICMP` 隧道工具，可作为 `udp2raw` `ICMP` 模式的替代方案。
 推荐与 `kcptun`、`hysteria`、`wireguard` 等工具配合使用，共同应对 `GFW` 或 `ISP` 越来越严厉的 `UDP` `QOS` 和丢包策略，有效提升穿透能力和连接稳定性。
 
 ## 优点与特性
 
 1. 同等`cpu`下最大流量比`udp2raw`快几倍，同时`cpu`占用资源用少的多。参见[性能测试](docs/benchmark.md)
 2. 安全的设计与实现
-3. 支持`openwrt`上运行
+3. 和基于`bpf`的`tutuicmptunnel`相比，快22%左右。不需要重编译内核即可支持`openwrt`。
 4. 支持`ipv4/ipv6`下的`icmp`/`icmp6`
 5. 可以使用`tuctl_server`安全而迅速的同步服务器/客户端配置
 
 ## 概述
 
-`tutuicmptunnel`分为服务器端和客户端两部分，双方都需要分别运行对应的服务器或客户端程序。
+`tutuicmptunnel-kmod`分为服务器端和客户端两部分，双方都需要分别运行对应的服务器或客户端程序。
 每台主机只能扮演服务器或客户端中的一种角色，不能同时兼任。
 为了区分不同客户端发送的报文，每个连接到服务器的客户端都会被分配一个唯一的`UID`取值范围为0~255，
 该`UID`对应`ICMP`协议的`code`字段。因此，每台服务器最多支持256个客户端用户。
@@ -29,16 +29,20 @@
 * 服务器端则使用三元组 [`UID`, 客户端`IP`, 目标端口（`port`）] 来标识哪些`ICMP`包需要被还原并转发为`UDP`包。
 * `IP`地址可以是`IPv4`或`IPv6`，`tutuicmptunnel`会根据`IP`类型自动选择使用`ICMP`或`ICMPv6`进行封装和转发。
 
-`tutuicmptunnel`可以与`WireGuard`、`xray-core`+`kcptun`、`hysteria`等工具搭配使用。
-由于这些软件本身已经具备加密和完整性校验功能，因此`tutuicmptunnel`不负责数据的加密、混淆和校验，仅负责数据的封装与转发。
+`tutuicmptunnel-kmod`可以与`WireGuard`、`xray-core`+`kcptun`、`hysteria`等工具搭配使用。
+由于这些软件本身已经具备加密和完整性校验功能，因此`tutuicmptunnel-kmod`不负责数据的加密、混淆和校验，仅负责数据的封装与转发。
 
-`tutuicmptunnel`不会修改数据包的负载内容，也不会在报文中添加额外的`IP`头部。
+`tutuicmptunnel-kmod`不会修改数据包的负载内容，也不会在报文中添加额外的`IP`头部。
 服务器端的转发规则完全依赖用户通过命令手动添加上述三元组进行配置。
 
-客户端可以通过`SSH`命令调用服务器命令：使用[tuctl](tuctl/README.md)命令手动修改上述三元组（包括更新客户端自身的`IP`地址）。
+客户端可以通过`SSH`命令调用服务器命令：使用[ktuctl](ktuctl/README.md)命令手动修改上述三元组（包括更新客户端自身的`IP`地址）。
 为了方便客户端动态通知服务器更新自己的`IP`和端口信息，也可以使用`tuctl_client`工具通过`UDP`协议实现配置同步。
 
 `tuctl_server`和`tuctl_client`使用UDP协议进行通信，采用基于时间戳的机制，并结合`XChaCha20-Poly1305`加密算法、`Argon2id`密钥派生算法以及预共享密钥（`PSK`）进行安全认证。这种方案可以安全且高效地让客户端将新的配置信息实时通知到服务器。
+
+`tutuicmptunnel-kmod`是基于`nftables`的内核模块机制。和`tutuicmptunnel`可互换通讯（一个做服务器，另一个做客户端）。有以下优点：
+1. 比`tutuicmptunnel`快22%左右
+2. 不需要重新编译内核即可支持`openwrt`
 
 ## 操作系统要求与依赖
 
@@ -49,10 +53,8 @@
 依赖准备:
 
 ```sh
-sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-tools libsodium-dev libelf-dev
+sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r)
 ```
-
-注意：如果你安装的不是标准`ubuntu`内核，请安装对应内核的`linux-tools`。或者放弃使用官方`bpftool`，在`cmake`配置时使用参数`-DUSE_SYSTEM_LIBBPF_BPFTOOL=0`。
 
 ### `Arch Linux`
 
@@ -61,7 +63,7 @@ sudo apt install -y git libbpf-dev clang llvm cmake libsodium-dev dkms linux-too
 依赖准备:
 
 ```sh
-sudo pacman -S git base-devel libbpf clang cmake libsodium dkms libsodium
+sudo pacman -S git libsodium dkms base-devel linux-headers
 ```
 
 ### `Openwrt`
@@ -73,16 +75,10 @@ sudo pacman -S git base-devel libbpf clang cmake libsodium dkms libsodium
 1. 检出代码并安装
 
 ```sh
-git clone https://github.com/hrimfaxi/tutuicmptunnel
-cd tutuicmptunnel
-cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 -DUSE_SYSTEM_LIBBPF_BPFTOOL=1 .
+git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
+cd tutuicmptunnel-kmod
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
 ```
-
-注意：如果是`Ubuntu` 20.04，需要使用`git`版本的`libbpf`/`bpftool`，并且关闭`bpf timer`支持
-
-```sh
-cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_LIBBPF_BPFTOOL=0 -DDISABLE_BPF_TIMER=1 -DBPF_CPU_VERSION="" .
-````
 
 ```sh
 make
@@ -91,17 +87,18 @@ sudo make install
 
 2. 内核模块
 
-服务器和客户端上都需要安装[tutu_csum_fixup](tutu_csum_fixup/README.md)内核模块，用于修复`bpf`不能修改的`icmp`包检验和。
+服务器和客户端上都需要安装[tutuicmptunnel.ko](kmod/README.md)内核模块。这是`tutuicmptunnel-kmod`的主体程序。
 
 ```sh
-cd tutu_csum_fixup
-sudo dkms remove tutu_csum_fixup/x.x --all # 如果之前安装过旧版本的话，使用dkms status查看过去版本
+cd kmod
+sudo dkms remove tutuicmptunnel/x.x --all # 如果之前安装过旧版本的话，使用dkms status查看过去版本
 sudo make dkms
-sudo tee -a /etc/modules-load.d/modules.conf <<< tutu_csum_fixup
-sudo modprobe tutu_csum_fixup
+sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
+sudo modprobe tutuicmptunnel
 ```
 
-有些系统需要设置`force_sw_checksum`参数，详情参见[tutu_csum_fixup](tutu_csum_fixup/README.md#force_sw_checksum)。
+可以添加参数`ifnames`指定需要启用的接口名字，用逗号分割。如果不指定，将在所有接口上启用`tutuicmptunnel`。
+有些系统需要设置`force_sw_checksum`参数，详情参见[kmod](kmod/README.md#force_sw_checksum)。
 
 3. 服务器：设置系统服务并启用可选的`tuctl_server`
 
@@ -113,8 +110,8 @@ sudo modprobe tutu_csum_fixup
 
 ```sh
 # 开机自动加载tutuicmptunnel服务并恢复配置
-sudo cp contrib/etc/systemd/system/tutuicmptunnel-server@.service /etc/systemd/system/
-sudo systemctl enable --now tutuicmptunnel-server@eth0.service # 其中eth0是服务器的网络接口
+sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-server@.service /etc/systemd/system/
+sudo systemctl enable --now tutuicmptunnel-kmod-server@eth0.service # 其中eth0是服务器的网络接口
 
 # 可选的tuctl_server
 sudo cp contrib/etc/systemd/system/tutuicmptunnel-tuctl-server.service /etc/systemd/system/
@@ -127,10 +124,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tutuicmptunnel-tuctl-server
 ```
 
-此时可以使用`tuctl`命令检查服务器状态
+此时可以使用`ktuctl`命令检查服务器状态
 ```sh
-sudo tuctl
-tutuicmptunnel: Role: Server, BPF build type: Release, no-fixup: off
+sudo ktuctl
+tutuicmptunnel-kmod: Role: Server, BPF build type: Release
 
 Peers:
 ....
@@ -139,11 +136,11 @@ Peers:
 也可以不使用`systemd`系统服务手工启动`tutuicmptunnel`为服务器模式：
 
 ```sh
-sudo tuctl unload iface eth0 # 先清理
-sudo tuctl load iface eth0 # 加载bpf到eth0接口
-sudo tuctl server # 设置为服务器模式
-sudo tuctl server-add uid 123 address 1.2.3.4 port 1234 # 添加客户端(id 123)，ip为1.2.3.4，目的udp端口为1234
-sudo tuctl server-del uid 123 # 删除之前的客户端
+sudo modprobe -r tutuicmptunnel # 卸载tutuicmptunnel模块
+sudo modprobe tutuicmptunnel # 加载tutuicmptunnel模块
+sudo ktuctl server # 设置为服务器模式
+sudo ktuctl server-add uid 123 address 1.2.3.4 port 1234 # 添加客户端(id 123)，ip为1.2.3.4，目的udp端口为1234
+sudo ktuctl server-del uid 123 # 删除之前的客户端
 ```
 
 4. 可选设置`UID`和主机名映射表
@@ -173,8 +170,8 @@ sudo vim /etc/tutuicmptunnel/uids
 
 ```sh
 # 设置tutuicmptunnel开机启动
-sudo cp contrib/etc/systemd/system/tutuicmptunnel-client@.service /etc/systemd/system/
-sudo systemctl enable --now tutuicmptunnel-client@enp4s0 # 假设你上网接口是enp4s0
+sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
+sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0 # 假设你上网接口是enp4s0
 ```
 
 现在可以试用下`tutuicmptunnel`：
@@ -188,27 +185,27 @@ export SERVER_PORT=14801 # tuctl_server的端口
 export COMMENT=yourname # 对你的客户端的身份的描述，命令成功之后可以在服务器上tuctl命令输出中查看注释
 
 # 设置为客户端模式
-sudo tuctl client
+sudo ktuctl client
 # 设置服务器的终端配置
-sudo tuctl client-add uid $TUTU_UID address $ADDRESS port $PORT
+sudo ktuctl client-add uid $TUTU_UID address $ADDRESS port $PORT
 # 验证是否正确
-sudo tuctl status
+sudo ktuctl status
 # 使用3322.net获取客户端的公网IP
 IP=$(curl -s ip.3322.net)
 # 使用tuctl_client通知服务器新的客户端设置
 tuctl_client psk $PSK server $ADDRESS server-port $SERVER_PORT <<< "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT"
 ```
 
-此时可以到服务器上去使用`sudo tuctl`命令查看客户端添加的规则：
+此时可以到服务器上去使用`sudo ktuctl`命令查看客户端添加的规则：
 
 ```sh
-tutuicmptunnel: Role: Server, BPF build type: Release, no-fixup: off
+tutuicmptunnel-kmod: Role: Server, BPF build type: Release
 
 Peers:
   User: xxxx, Address: xxx.xxx.xxx.xxx, Sport: 37926, Dport: 3322, ICMP: 11403, Comment: yourname
 ```
 
-如果一切配置正确，此时客户端与服务器之间，原本源地址为客户端、目标端口为3322的`UDP`通信，会被`tutuicmptunnel`在客户端自动转换为`ICMP`包发送。
+如果一切配置正确，此时客户端与服务器之间，原本源地址为客户端、目标端口为3322的`UDP`通信，会被`tutuicmptunnel-kmod`在客户端自动转换为`ICMP`包发送。
 服务器接收到`ICMP`包后，会将其还原为`UDP`包并继续转发。 在整个传输过程中，网络中间节点只能看到`ICMP Echo`/`Reply`报文。
 
 ## 主要应用场景
