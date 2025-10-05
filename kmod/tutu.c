@@ -1204,9 +1204,276 @@ static int tutu_clear_stats(void) {
   return 0;
 }
 
-static long tutu_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+static long ioctl_cmd_get_config(void __user *argp, struct tutu_config *cfg) {
   int err;
 
+  err = tutu_export_config(cfg);
+  if (err)
+    return err;
+  if (copy_to_user(argp, cfg, sizeof(*cfg))) {
+    return -EFAULT;
+  }
+  return 0;
+}
+
+static long ioctl_cmd_set_config(void __user *argp, struct tutu_config *cfg) {
+  if (copy_from_user(cfg, argp, sizeof(*cfg)))
+    return -EFAULT;
+  return tutu_set_config(cfg);
+}
+
+static long ioctl_cmd_get_stats(void __user *argp, struct tutu_stats *st) {
+  int err;
+
+  err = tutu_export_stats(st);
+  if (err)
+    return err;
+  if (copy_to_user(argp, st, sizeof(*st)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_lookup_egress(void __user *argp, struct tutu_egress *egress) {
+  struct egress_peer_value *value;
+
+  if (copy_from_user(egress, argp, sizeof(*egress)))
+    return -EFAULT;
+
+  value = tutu_map_lookup_elem(egress_peer_map, &egress->key);
+  if (!value)
+    return -ENOENT;
+
+  memcpy(&egress->value, value, sizeof(egress->value));
+  if (copy_to_user(argp, egress, sizeof(*egress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_delete_egress(void __user *argp, struct tutu_egress *egress) {
+  if (copy_from_user(egress, argp, sizeof(*egress)))
+    return -EFAULT;
+
+  return tutu_map_delete_elem(egress_peer_map, &egress->key);
+}
+
+static long ioctl_cmd_update_egress(void __user *argp, struct tutu_egress *egress) {
+  if (copy_from_user(egress, argp, sizeof(*egress)))
+    return -EFAULT;
+
+  return tutu_map_update_elem(egress_peer_map, &egress->key, &egress->value, egress->map_flags);
+}
+
+static long ioctl_cmd_get_first_key_egress(void __user *argp, struct tutu_egress *egress) {
+  int err;
+
+  if (copy_from_user(egress, argp, sizeof(*egress))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(egress_peer_map, NULL, &egress->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, egress, sizeof(*egress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_get_next_key_egress(void __user *argp, struct tutu_egress *egress) {
+  int err;
+
+  if (copy_from_user(egress, argp, sizeof(*egress))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(egress_peer_map, &egress->key, &egress->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, egress, sizeof(*egress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_lookup_ingress(void __user *argp, struct tutu_ingress *ingress) {
+  struct ingress_peer_value *value;
+
+  if (copy_from_user(ingress, argp, sizeof(*ingress)))
+    return -EFAULT;
+
+  value = tutu_map_lookup_elem(ingress_peer_map, &ingress->key);
+  if (!value)
+    return -ENOENT;
+
+  memcpy(&ingress->value, value, sizeof(ingress->value));
+  if (copy_to_user(argp, ingress, sizeof(*ingress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_delete_ingress(void __user *argp, struct tutu_ingress *ingress) {
+  if (copy_from_user(ingress, argp, sizeof(*ingress)))
+    return -EFAULT;
+
+  return tutu_map_delete_elem(ingress_peer_map, &ingress->key);
+}
+
+static long ioctl_cmd_update_ingress(void __user *argp, struct tutu_ingress *ingress) {
+  if (copy_from_user(ingress, argp, sizeof(*ingress)))
+    return -EFAULT;
+
+  return tutu_map_update_elem(ingress_peer_map, &ingress->key, &ingress->value, ingress->map_flags);
+}
+
+static long ioctl_cmd_get_first_key_ingress(void __user *argp, struct tutu_ingress *ingress) {
+  int err;
+
+  if (copy_from_user(ingress, argp, sizeof(*ingress))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(ingress_peer_map, NULL, &ingress->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, ingress, sizeof(*ingress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_get_next_key_ingress(void __user *argp, struct tutu_ingress *ingress) {
+  int err;
+
+  if (copy_from_user(ingress, argp, sizeof(*ingress))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(ingress_peer_map, &ingress->key, &ingress->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, ingress, sizeof(*ingress)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_lookup_user_info(void __user *argp, struct tutu_user_info *user_info) {
+  struct user_info_peer_value *value;
+
+  if (copy_from_user(user_info, argp, sizeof(*user_info)))
+    return -EFAULT;
+
+  value = tutu_map_lookup_elem(user_map, &user_info->key);
+  if (!value)
+    return -ENOENT;
+
+  memcpy(&user_info->value, value, sizeof(user_info->value));
+  if (copy_to_user(argp, user_info, sizeof(*user_info)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_delete_user_info(void __user *argp, struct tutu_user_info *user_info) {
+  if (copy_from_user(user_info, argp, sizeof(*user_info)))
+    return -EFAULT;
+
+  return tutu_map_delete_elem(user_map, &user_info->key);
+}
+
+static long ioctl_cmd_update_user_info(void __user *argp, struct tutu_user_info *user_info) {
+  if (copy_from_user(user_info, argp, sizeof(*user_info)))
+    return -EFAULT;
+
+  return tutu_map_update_elem(user_map, &user_info->key, &user_info->value, user_info->map_flags);
+}
+
+static long ioctl_cmd_get_first_key_user_info(void __user *argp, struct tutu_user_info *user_info) {
+  int err;
+
+  if (copy_from_user(user_info, argp, sizeof(*user_info))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(user_map, NULL, &user_info->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, user_info, sizeof(*user_info)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_get_next_key_user_info(void __user *argp, struct tutu_user_info *user_info) {
+  int err;
+
+  if (copy_from_user(user_info, argp, sizeof(*user_info))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(user_map, &user_info->key, &user_info->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, user_info, sizeof(*user_info)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_lookup_session(void __user *argp, struct tutu_session *session) {
+  struct session_peer_value *value;
+
+  if (copy_from_user(session, argp, sizeof(*session)))
+    return -EFAULT;
+
+  value = tutu_map_lookup_elem(session_map, &session->key);
+  if (!value)
+    return -ENOENT;
+
+  memcpy(&session->value, value, sizeof(session->value));
+  if (copy_to_user(argp, session, sizeof(*session)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_delete_session(void __user *argp, struct tutu_session *session) {
+  if (copy_from_user(session, argp, sizeof(*session)))
+    return -EFAULT;
+
+  return tutu_map_delete_elem(session_map, &session->key);
+}
+
+static long ioctl_cmd_update_session(void __user *argp, struct tutu_session *session) {
+  if (copy_from_user(session, argp, sizeof(*session)))
+    return -EFAULT;
+
+  return tutu_map_update_elem(session_map, &session->key, &session->value, session->map_flags);
+}
+
+static long ioctl_cmd_get_first_key_session(void __user *argp, struct tutu_session *session) {
+  int err;
+
+  if (copy_from_user(session, argp, sizeof(*session))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(session_map, NULL, &session->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, session, sizeof(*session)))
+    return -EFAULT;
+  return 0;
+}
+
+static long ioctl_cmd_get_next_key_session(void __user *argp, struct tutu_session *session) {
+  int err;
+
+  if (copy_from_user(session, argp, sizeof(*session))) {
+    return -EFAULT;
+  }
+
+  err = tutu_map_get_next_key(session_map, &session->key, &session->key);
+  if (err)
+    return err;
+  if (copy_to_user(argp, session, sizeof(*session)))
+    return -EFAULT;
+  return 0;
+}
+
+static long tutu_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
   struct tutu_config    cfg       = {};
   struct tutu_stats     st        = {};
   struct tutu_egress    egress    = {};
@@ -1221,233 +1488,76 @@ static long tutu_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned lo
 
   switch (cmd) {
   case TUTU_GET_CONFIG: {
-    err = tutu_export_config(&cfg);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &cfg, sizeof(cfg))) {
-      return -EFAULT;
-    }
-    return 0;
+    return ioctl_cmd_get_config(argp, &cfg);
   }
   case TUTU_SET_CONFIG: {
-    if (copy_from_user(&cfg, argp, sizeof(cfg)))
-      return -EFAULT;
-    return tutu_set_config(&cfg);
+    return ioctl_cmd_set_config(argp, &cfg);
   }
   case TUTU_GET_STATS: {
-    err = tutu_export_stats(&st);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &st, sizeof(st)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_stats(argp, &st);
   }
   case TUTU_CLR_STATS: {
     return tutu_clear_stats();
   }
   case TUTU_LOOKUP_EGRESS: {
-    struct egress_peer_value *value;
-
-    if (copy_from_user(&egress, argp, sizeof(egress)))
-      return -EFAULT;
-
-    value = tutu_map_lookup_elem(egress_peer_map, &egress.key);
-    if (!value)
-      return -ENOENT;
-
-    memcpy(&egress.value, value, sizeof(egress.value));
-    if (copy_to_user(argp, &egress, sizeof(egress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_lookup_egress(argp, &egress);
   }
   case TUTU_DELETE_EGRESS: {
-    if (copy_from_user(&egress, argp, sizeof(egress)))
-      return -EFAULT;
-
-    return tutu_map_delete_elem(egress_peer_map, &egress.key);
+    return ioctl_cmd_delete_egress(argp, &egress);
   }
   case TUTU_UPDATE_EGRESS: {
-    if (copy_from_user(&egress, argp, sizeof(egress)))
-      return -EFAULT;
-
-    return tutu_map_update_elem(egress_peer_map, &egress.key, &egress.value, egress.map_flags);
+    return ioctl_cmd_update_egress(argp, &egress);
   }
   case TUTU_GET_FIRST_KEY_EGRESS: {
-    if (copy_from_user(&egress, argp, sizeof(egress))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(egress_peer_map, NULL, &egress.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &egress, sizeof(egress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_first_key_egress(argp, &egress);
   }
   case TUTU_GET_NEXT_KEY_EGRESS: {
-    if (copy_from_user(&egress, argp, sizeof(egress))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(egress_peer_map, &egress.key, &egress.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &egress, sizeof(egress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_next_key_egress(argp, &egress);
   }
   case TUTU_LOOKUP_INGRESS: {
-    struct ingress_peer_value *value;
-
-    if (copy_from_user(&ingress, argp, sizeof(ingress)))
-      return -EFAULT;
-
-    value = tutu_map_lookup_elem(ingress_peer_map, &ingress.key);
-    if (!value)
-      return -ENOENT;
-
-    memcpy(&ingress.value, value, sizeof(ingress.value));
-    if (copy_to_user(argp, &ingress, sizeof(ingress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_lookup_ingress(argp, &ingress);
   }
   case TUTU_DELETE_INGRESS: {
-    if (copy_from_user(&ingress, argp, sizeof(ingress)))
-      return -EFAULT;
-
-    return tutu_map_delete_elem(ingress_peer_map, &ingress.key);
+    return ioctl_cmd_delete_ingress(argp, &ingress);
   }
   case TUTU_UPDATE_INGRESS: {
-    if (copy_from_user(&ingress, argp, sizeof(ingress)))
-      return -EFAULT;
-
-    return tutu_map_update_elem(ingress_peer_map, &ingress.key, &ingress.value, ingress.map_flags);
+    return ioctl_cmd_update_ingress(argp, &ingress);
   }
   case TUTU_GET_FIRST_KEY_INGRESS: {
-    if (copy_from_user(&ingress, argp, sizeof(ingress))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(ingress_peer_map, NULL, &ingress.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &ingress, sizeof(ingress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_first_key_ingress(argp, &ingress);
   }
   case TUTU_GET_NEXT_KEY_INGRESS: {
-    if (copy_from_user(&ingress, argp, sizeof(ingress))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(ingress_peer_map, &ingress.key, &ingress.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &ingress, sizeof(ingress)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_next_key_ingress(argp, &ingress);
   }
   case TUTU_LOOKUP_SESSION: {
-    struct session_peer_value *value;
-
-    if (copy_from_user(&session, argp, sizeof(session)))
-      return -EFAULT;
-
-    value = tutu_map_lookup_elem(session_map, &session.key);
-    if (!value)
-      return -ENOENT;
-
-    memcpy(&session.value, value, sizeof(session.value));
-    if (copy_to_user(argp, &session, sizeof(session)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_lookup_session(argp, &session);
   }
   case TUTU_DELETE_SESSION: {
-    if (copy_from_user(&session, argp, sizeof(session)))
-      return -EFAULT;
-
-    return tutu_map_delete_elem(session_map, &session.key);
+    return ioctl_cmd_delete_session(argp, &session);
   }
   case TUTU_UPDATE_SESSION: {
-    if (copy_from_user(&session, argp, sizeof(session)))
-      return -EFAULT;
-
-    return tutu_map_update_elem(session_map, &session.key, &session.value, session.map_flags);
+    return ioctl_cmd_update_session(argp, &session);
   }
   case TUTU_GET_FIRST_KEY_SESSION: {
-    if (copy_from_user(&session, argp, sizeof(session))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(session_map, NULL, &session.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &session, sizeof(session)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_first_key_session(argp, &session);
   }
   case TUTU_GET_NEXT_KEY_SESSION: {
-    if (copy_from_user(&session, argp, sizeof(session))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(session_map, &session.key, &session.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &session, sizeof(session)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_next_key_session(argp, &session);
   }
   case TUTU_LOOKUP_USER_INFO: {
-    struct user_info_peer_value *value;
-
-    if (copy_from_user(&user_info, argp, sizeof(user_info)))
-      return -EFAULT;
-
-    value = tutu_map_lookup_elem(user_map, &user_info.key);
-    if (!value)
-      return -ENOENT;
-
-    memcpy(&user_info.value, value, sizeof(user_info.value));
-    if (copy_to_user(argp, &user_info, sizeof(user_info)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_lookup_user_info(argp, &user_info);
   }
   case TUTU_DELETE_USER_INFO: {
-    if (copy_from_user(&user_info, argp, sizeof(user_info)))
-      return -EFAULT;
-
-    return tutu_map_delete_elem(user_map, &user_info.key);
+    return ioctl_cmd_delete_user_info(argp, &user_info);
   }
   case TUTU_UPDATE_USER_INFO: {
-    if (copy_from_user(&user_info, argp, sizeof(user_info)))
-      return -EFAULT;
-
-    return tutu_map_update_elem(user_map, &user_info.key, &user_info.value, user_info.map_flags);
+    return ioctl_cmd_update_user_info(argp, &user_info);
   }
   case TUTU_GET_FIRST_KEY_USER_INFO: {
-    if (copy_from_user(&user_info, argp, sizeof(user_info))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(user_map, NULL, &user_info.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &user_info, sizeof(user_info)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_first_key_user_info(argp, &user_info);
   }
   case TUTU_GET_NEXT_KEY_USER_INFO: {
-    if (copy_from_user(&user_info, argp, sizeof(user_info))) {
-      return -EFAULT;
-    }
-
-    err = tutu_map_get_next_key(user_map, &user_info.key, &user_info.key);
-    if (err)
-      return err;
-    if (copy_to_user(argp, &user_info, sizeof(user_info)))
-      return -EFAULT;
-    return 0;
+    return ioctl_cmd_get_next_key_user_info(argp, &user_info);
   }
   }
 
