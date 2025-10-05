@@ -12,9 +12,9 @@ add_compile_options(-Wall -Wextra -Wno-error)
 add_definitions(-D_GNU_SOURCE=1 -DPROJECT_NAME=${CMAKE_PROJECT_NAME} -DINSTALL_PREFIX_DIR=${CMAKE_INSTALL_PREFIX})
 include_directories(common)
 add_compile_definitions(
-  VERSION_MAJOR=${tutuicmptunnel_VERSION_MAJOR}
-  VERSION_MINOR=${tutuicmptunnel_VERSION_MINOR}
-  VERSION_STR=\"${tutuicmptunnel_VERSION}\"
+  VERSION_MAJOR=${CMAKE_PROJECT_VERSION_MAJOR}
+  VERSION_MINOR=${CMAKE_PROJECT_VERSION_MINOR}
+  VERSION_STR=\"${CMAKE_PROJECT_VERSION}\"
 )
 
 option(USE_LLVM_FOR_KMOD 1)

@@ -22,4 +22,4 @@ dkms:
 	dkms autoinstall
 
 dkms-remove:
-	dkms remove tutuicmptunnel/@tutuicmptunnel_VERSION@ --all
+	dkms remove tutuicmptunnel/@CMAKE_PROJECT_VERSION@ --all
