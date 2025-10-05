@@ -77,7 +77,7 @@ sudo pacman -S git libsodium dkms base-devel linux-headers
 ```sh
 git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
 cd tutuicmptunnel-kmod
-cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
 ```
 
 ```sh
@@ -87,7 +87,7 @@ sudo make install
 
 2. 内核模块
 
-服务器和客户端上都需要安装[tutuicmptunnel.ko](kmod/README.md)内核模块。这是`tutuicmptunnel-bpf`的主体程序。
+服务器和客户端上都需要安装[tutuicmptunnel.ko](kmod/README.md)内核模块。这是`tutuicmptunnel-kmod`的主体程序。
 
 ```sh
 cd kmod
