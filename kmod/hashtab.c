@@ -290,40 +290,28 @@ void tutu_map_free(struct tutu_htab *htab) {
 void *tutu_map_lookup_elem(struct tutu_htab *htab, void *key) {
   void *val;
 
-  rcu_read_lock();
   val = htab_map_lookup_elem(htab, key);
-  rcu_read_unlock();
-
   return val;
 }
 
 int tutu_map_delete_elem(struct tutu_htab *htab, void *key) {
   int err;
 
-  rcu_read_lock();
   err = htab_map_delete_elem(htab, key);
-  rcu_read_unlock();
-
   return err;
 }
 
 int tutu_map_get_next_key(struct tutu_htab *htab, void *key, void *next_key) {
   int err;
 
-  rcu_read_lock();
   err = htab_map_get_next_key(htab, key, next_key);
-  rcu_read_unlock();
-
   return err;
 }
 
 int tutu_map_update_elem(struct tutu_htab *htab, void *key, void *value, u64 map_flags) {
   int err;
 
-  rcu_read_lock();
   err = htab_map_update_elem(htab, key, value, map_flags);
-  rcu_read_unlock();
-
   return err;
 }
 
