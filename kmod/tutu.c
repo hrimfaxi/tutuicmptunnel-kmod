@@ -918,7 +918,9 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     ipv6 = ipv6_hdr(skb);
   }
 
-  struct icmphdr *icmp = icmp_hdr(skb);
+  // 由于icmp和icmp6hdr大小相等，而且前4字节完全等价，我们使用icmphdr作为表示icmp头部的类型
+  struct icmphdr *icmp = (typeof(icmp)) (skb->data + ip_end);
+  _Static_assert(sizeof(struct icmphdr) == sizeof(struct icmp6hdr), "ICMP and ICMPv6 header sizes must match");
 
   // Extract UID from ICMP code
   u8     uid      = icmp->code;
