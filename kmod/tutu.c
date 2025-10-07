@@ -397,7 +397,7 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
         return -EINVAL;
 
-      opt_hdr = (struct ipv6_opt_hdr *) (skb_network_header(skb) + (current_hdr_start - local_l2_len));
+      opt_hdr = (typeof (opt_hdr))(skb->data + current_hdr_start);
 
       // 更新协议字段偏移量为当前扩展头的 nexthdr 字段的偏移量
       local_proto_offset = current_hdr_start + offsetof(struct ipv6_opt_hdr, nexthdr);
