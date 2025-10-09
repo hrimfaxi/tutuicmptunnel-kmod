@@ -136,8 +136,7 @@ static int reload_config_from_param(void) {
     return err;
 
   oldcfg = set_new_ifset(newcfg);
-  if (oldcfg)
-    kfree_rcu(oldcfg, rcu);
+  kfree_rcu(oldcfg, rcu);
 
   pr_debug("ifset: config reloaded (ifnames=\"%s\")\n", ifnames ? ifnames : "");
   return 0;
@@ -147,8 +146,7 @@ static void free_ifset(void) {
   struct ifset *oldcfg;
 
   oldcfg = set_new_ifset(NULL);
-  if (oldcfg)
-    kfree_rcu(oldcfg, rcu);
+  kfree_rcu(oldcfg, rcu);
 }
 
 static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
