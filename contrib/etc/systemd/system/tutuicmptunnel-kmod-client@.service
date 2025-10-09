@@ -1,11 +1,12 @@
 [Unit]
 Description=tutuicmptunnel-kmod client loader for %i
-After=network.target
+After=network.target sys-subsystem-net-devices-%i.device
+Requires=sys-subsystem-net-devices-%i.device
 
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/tutuicmptunnel-client-%i
-ExecStartPre=/bin/bash -c 'modprobe tutuicmptunnel || true'
+ExecStartPre=/bin/bash -c 'modprobe tutuicmptunnel ifnames=%i || true'
 ExecStartPre=/bin/mkdir -p /etc/tutuicmptunnel
 ExecStart=bash -c '\
     if [ -f /etc/tutuicmptunnel/config ]; then  \
