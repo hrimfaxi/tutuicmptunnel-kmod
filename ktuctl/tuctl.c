@@ -98,7 +98,7 @@ static int set_ingress_peer_map(int fd, const struct ingress_peer_key *key, cons
   struct tutu_ingress ingress = {
     .key       = *key,
     .value     = *value,
-    .map_flags = TUTU_ANY,
+    .map_flags = TUTU_NOEXIST,
   };
 
   return ioctl(fd, TUTU_UPDATE_INGRESS, &ingress);
@@ -392,9 +392,6 @@ int cmd_client_add(int argc, char **argv) {
     egress_peer_value.comment[sizeof(egress_peer_value.comment) - 1] = '\0';
   }
 
-  err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress_peer_key, &egress_peer_value), _("set_egress_peer_map: %s"),
-             strerrno);
-
   ingress_peer_key = (typeof(ingress_peer_key)) {
     .uid = uid,
   };
@@ -403,7 +400,24 @@ int cmd_client_add(int argc, char **argv) {
   };
   ingress_peer_key.address = in6;
 
-  err = try2(set_ingress_peer_map(tutuicmptunnel_fd, &ingress_peer_key, &ingress_peer_value), _("set_ingress_peer_map: %s"),
+  err = set_ingress_peer_map(tutuicmptunnel_fd, &ingress_peer_key, &ingress_peer_value);
+  if (err) {
+    if (errno == EEXIST) {
+      char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
+      try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
+      try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
+
+      log_error("Unable to configure UID %s for address %s port %u because another port is already in use on this address",
+                uidstr, ipstr, port);
+      free(uidstr);
+    } else {
+      log_error(_("set_ingress_peer_map failed: %s"), strerrno);
+    }
+
+    goto err_cleanup;
+  }
+
+  err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress_peer_key, &egress_peer_value), _("set_egress_peer_map: %s"),
              strerrno);
 
   {
