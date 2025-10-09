@@ -320,11 +320,9 @@ int cmd_client_add(int argc, char **argv) {
   int         err       = 0;
   bool        is_server = false;
 
-  struct egress_peer_key    egress_peer_key;
-  struct egress_peer_value  egress_peer_value;
-  struct ingress_peer_key   ingress_peer_key;
-  struct ingress_peer_value ingress_peer_value;
-  struct in6_addr           in6;
+  struct tutu_egress  egress;
+  struct tutu_ingress ingress;
+  struct in6_addr     in6;
 
   if (help)
     goto usage;
@@ -371,15 +369,19 @@ int cmd_client_add(int argc, char **argv) {
     goto usage;
   }
 
-  egress_peer_key = (typeof(egress_peer_key)) {
-    .port = htons(port),
-  };
-  egress_peer_value = (typeof(egress_peer_value)) {
-    .uid = uid,
+  egress = (typeof(egress)) {
+    .key =
+      {
+        .port = htons(port),
+      },
+    .value =
+      {
+        .uid = uid,
+      },
   };
 
   try2(resolve_ip_addr(family, address, &in6));
-  egress_peer_key.address = in6;
+  egress.key.address = in6;
 
   if (comment) {
     if (strpbrk(comment, "\r\n")) {
@@ -388,28 +390,39 @@ int cmd_client_add(int argc, char **argv) {
       goto err_cleanup;
     }
 
-    strncpy((char *) egress_peer_value.comment, comment, sizeof(egress_peer_value.comment));
-    egress_peer_value.comment[sizeof(egress_peer_value.comment) - 1] = '\0';
+    strncpy((char *) egress.value.comment, comment, sizeof(egress.value.comment));
+    egress.value.comment[sizeof(egress.value.comment) - 1] = '\0';
   }
 
-  ingress_peer_key = (typeof(ingress_peer_key)) {
-    .uid = uid,
+  ingress = (typeof(ingress)) {
+    .key =
+      {
+        .uid     = uid,
+        .address = in6,
+      },
+    .value =
+      {
+        .port = htons(port),
+      },
   };
-  ingress_peer_value = (typeof(ingress_peer_value)) {
-    .port = htons(port),
-  };
-  ingress_peer_key.address = in6;
 
-  err = set_ingress_peer_map(tutuicmptunnel_fd, &ingress_peer_key, &ingress_peer_value);
+  err = set_ingress_peer_map(tutuicmptunnel_fd, &ingress.key, &ingress.value);
   if (err) {
     if (errno == EEXIST) {
-      char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
-      try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-      try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
+      try2(ioctl(tutuicmptunnel_fd, TUTU_LOOKUP_INGRESS, &ingress), _("ioctl lookup ingress: %s"), strerrno);
+      if (port != ntohs(ingress.value.port)) {
+        char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
+        try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
+        try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
 
-      log_error("Unable to configure UID %s for address %s port %u because another port is already in use on this address",
-                uidstr, ipstr, port);
-      free(uidstr);
+        log_error("Unable to configure UID %s for address %s port %u because another port is already in use on this address",
+                  uidstr, ipstr, port);
+        free(uidstr);
+        err = -EEXIST;
+      } else {
+        err = 0;
+        goto ok;
+      }
     } else {
       log_error(_("set_ingress_peer_map failed: %s"), strerrno);
     }
@@ -417,15 +430,15 @@ int cmd_client_add(int argc, char **argv) {
     goto err_cleanup;
   }
 
-  err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress_peer_key, &egress_peer_value), _("set_egress_peer_map: %s"),
-             strerrno);
+ok:
+  err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
 
   {
     char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
     try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
     try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
-    log_info("client set: %s, address: %s, port: %u, comment: %.*s", uidstr, ipstr, port,
-             (int) sizeof(egress_peer_value.comment), egress_peer_value.comment);
+    log_info("client set: %s, address: %s, port: %u, comment: %.*s", uidstr, ipstr, port, (int) sizeof(egress.value.comment),
+             egress.value.comment);
     free(uidstr);
   }
 
