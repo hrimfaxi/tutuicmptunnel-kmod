@@ -300,35 +300,8 @@ static __sum16 udp_header_sum(struct udphdr *udp) {
   return csum16_fold(sum);
 }
 
-static void ipv4_to_ipv6_mapped(__be32 ipv4, struct in6_addr *ipv6) {
-  ipv6->s6_addr32[0] = 0;
-  ipv6->s6_addr32[1] = 0;
-  ipv6->s6_addr32[2] = htonl(0x0000ffff);
-  ipv6->s6_addr32[3] = ipv4;
-}
-
 static void ipv6_copy(struct in6_addr *dst, const struct in6_addr *src) {
   *dst = *src;
-}
-
-static int ipv6_equal(const struct in6_addr *a, const struct in6_addr *b) {
-  const u32 *pa = (const u32 *) a->s6_addr32;
-  const u32 *pb = (const u32 *) b->s6_addr32;
-
-  return (pa[0] == pb[0]) & (pa[1] == pb[1]) & (pa[2] == pb[2]) & (pa[3] == pb[3]);
-}
-
-static inline bool ipv6_is_ext(u8 nexthdr) {
-  switch (nexthdr) {
-  case IPPROTO_HOPOPTS:
-  case IPPROTO_ROUTING:
-  case IPPROTO_FRAGMENT:
-  case IPPROTO_DSTOPTS:
-  case IPPROTO_MH:
-    return 1;
-  default:
-    return 0;
-  }
 }
 
 /*
@@ -391,13 +364,13 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
     for (int i = 0; i < 8; i++) {
       struct ipv6_opt_hdr *opt_hdr;
 
-      if (!ipv6_is_ext(next_hdr))
+      if (!ipv6_ext_hdr(next_hdr))
         break;
 
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
         return -EINVAL;
 
-      opt_hdr = (typeof (opt_hdr))(skb->data + current_hdr_start);
+      opt_hdr = (typeof(opt_hdr)) (skb->data + current_hdr_start);
 
       // 更新协议字段偏移量为当前扩展头的 nexthdr 字段的偏移量
       local_proto_offset = current_hdr_start + offsetof(struct ipv6_opt_hdr, nexthdr);
@@ -689,7 +662,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     if (ipv4) {
       struct in6_addr in6;
 
-      ipv4_to_ipv6_mapped(get_unaligned(&ipv4->daddr), &in6);
+      ipv6_addr_set_v4mapped(get_unaligned(&ipv4->daddr), &in6);
       lookup_key.address = in6;
     } else if (ipv6) {
       ipv6_copy(&lookup_key.address, &ipv6->daddr);
@@ -728,7 +701,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
 
     if (ipv4) {
       pr_debug("egress: udp: %pI4:%5u\n", &ipv4->saddr, udp->dest);
-      ipv4_to_ipv6_mapped(get_unaligned(&ipv4->daddr), &peer_key.address);
+      ipv6_addr_set_v4mapped(get_unaligned(&ipv4->daddr), &peer_key.address);
     } else if (ipv6) {
       pr_debug("egress: udp: src %pI6:%5u\n", &ipv6->saddr, udp->dest);
       ipv6_copy(&peer_key.address, &ipv6->daddr);
@@ -940,10 +913,10 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     // 验证客户端地址与用户配置地址相等
     if (ipv4) {
       struct in6_addr in6;
-      ipv4_to_ipv6_mapped(get_unaligned(&ipv4->saddr), &in6);
-      try2_ok(ipv6_equal(&user->address, &in6) ? 0 : -1, "unrelated client ipv4 address\n");
+      ipv6_addr_set_v4mapped(get_unaligned(&ipv4->saddr), &in6);
+      try2_ok(!ipv6_addr_cmp(&user->address, &in6) ? 0 : -1, "unrelated client ipv4 address\n");
     } else if (ipv6) {
-      try2_ok(ipv6_equal(&user->address, &ipv6->saddr) ? 0 : -1, "unrelated client ipv6 address\n");
+      try2_ok(!ipv6_addr_cmp(&user->address, &ipv6->saddr) ? 0 : -1, "unrelated client ipv6 address\n");
     }
 
     // 优化：只有发生变化才需要更新user_map
@@ -979,7 +952,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
 
     if (ipv4) {
       pr_debug("ingress: icmp: %pI4:%u\n", &ipv4->saddr, icmp->code);
-      ipv4_to_ipv6_mapped(get_unaligned(&ipv4->saddr), &peer_key.address);
+      ipv6_addr_set_v4mapped(get_unaligned(&ipv4->saddr), &peer_key.address);
     } else if (ipv6) {
       pr_debug("ingress: icmp: src %pI6 id %u\n", &ipv6->saddr, icmp->code);
       ipv6_copy(&peer_key.address, &ipv6->saddr);
@@ -1003,8 +976,8 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   struct in6_addr saddr, daddr;
 
   if (ipv4) {
-    ipv4_to_ipv6_mapped(get_unaligned(&ipv4->saddr), &saddr);
-    ipv4_to_ipv6_mapped(get_unaligned(&ipv4->daddr), &daddr);
+    ipv6_addr_set_v4mapped(get_unaligned(&ipv4->saddr), &saddr);
+    ipv6_addr_set_v4mapped(get_unaligned(&ipv4->daddr), &daddr);
   } else if (ipv6) {
     ipv6_copy(&saddr, &ipv6->saddr);
     ipv6_copy(&daddr, &ipv6->daddr);
