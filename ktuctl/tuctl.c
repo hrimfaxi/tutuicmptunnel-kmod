@@ -410,7 +410,9 @@ int cmd_client_add(int argc, char **argv) {
   if (err) {
     if (errno == EEXIST) {
       try2(ioctl(tutuicmptunnel_fd, TUTU_LOOKUP_INGRESS, &ingress), _("ioctl lookup ingress: %s"), strerrno);
-      if (port != ntohs(ingress.value.port)) {
+      if (port == ntohs(ingress.value.port)) {
+        err = 0;
+      } else {
         char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
         try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
         try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
@@ -419,18 +421,14 @@ int cmd_client_add(int argc, char **argv) {
                   uidstr, ipstr, port);
         free(uidstr);
         err = -EEXIST;
-      } else {
-        err = 0;
-        goto ok;
+        goto err_cleanup;
       }
     } else {
       log_error(_("set_ingress_peer_map failed: %s"), strerrno);
+      goto err_cleanup;
     }
-
-    goto err_cleanup;
   }
 
-ok:
   err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
 
   {
