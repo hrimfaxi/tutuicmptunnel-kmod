@@ -232,6 +232,8 @@ static __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
   // 高16位为0
   sum += htons(IPPROTO_UDP); // 低16位
 
+  // 以上累加由于值不可能溢出__wsum范围所以不需要使用csum_add，但之后必须要用csum_add()
+
   // IPv6源地址 (16字节 = 4个32位字)
   for (i = 0; i < 4; i++) {
     sum = csum_add(sum, ip6h->saddr.in6_u.u6_addr32[i]);
