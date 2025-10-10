@@ -226,12 +226,12 @@ static __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
 
   // IPv6源地址 (16字节 = 4个32位字)
   for (i = 0; i < 4; i++) {
-    sum += ip6h->saddr.in6_u.u6_addr32[i];
+    sum = csum_add(sum, ip6h->saddr.in6_u.u6_addr32[i]);
   }
 
   // IPv6目的地址 (16字节 = 4个32位字)
   for (i = 0; i < 4; i++) {
-    sum += ip6h->daddr.in6_u.u6_addr32[i];
+    sum = csum_add(sum, ip6h->daddr.in6_u.u6_addr32[i]);
   }
 
   // UDP长度 (32位，高16位为0)
@@ -253,12 +253,12 @@ static __wsum icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
 
   // 源地址
   for (int i = 0; i < 4; i++) {
-    sum += ip6h->saddr.in6_u.u6_addr32[i];
+    sum = csum_add(sum, ip6h->saddr.in6_u.u6_addr32[i]);
   }
 
   // 目的地址
   for (int i = 0; i < 4; i++) {
-    sum += ip6h->daddr.in6_u.u6_addr32[i];
+    sum = csum_add(sum, ip6h->daddr.in6_u.u6_addr32[i]);
   }
 
   // ICMPv6长度，高16位+低16位
