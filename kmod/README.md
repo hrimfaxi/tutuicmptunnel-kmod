@@ -4,6 +4,15 @@
 
 ## 模块参数
 
+使用命令`modprobe`添加参数，例如：
+
+```sh
+rmmod tutuicmptunnel
+modprobe tutuicmptunnel force_sw_checksum=1 dev_mode=0777 ifnames=wlan0,pppoe-wan,wan,enp4s0
+```
+
+参数说明
+
 - force_sw_checksum
   - 说明：强制使用软件方式计算校验和。
   - 何时使用：在部分虚拟化/云环境（如某些阿里云实例、qemu 的 e1000e 网卡等）下，硬件校验和可能不可用或不可靠，需设为 1 才能发出正确的校验和。
