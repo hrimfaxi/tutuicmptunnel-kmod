@@ -216,29 +216,11 @@ static struct tutu_config_rcu __rcu *g_cfg_ptr;
 
 DEFINE_PER_CPU(struct tutu_stats_k, g_stats_percpu);
 
-static __sum16 csum16_fold(__wsum sum) {
-  sum = (sum & 0xFFFF) + (sum >> 16);
-  sum = (sum & 0xFFFF) + (sum >> 16);
-
-  return (__sum16) sum;
+static __always_inline __wsum udp_pseudoheader_sum(struct iphdr *iph, struct udphdr *udp) {
+  return csum_tcpudp_nofold(iph->saddr, iph->daddr, ntohs(udp->len), IPPROTO_UDP, 0);
 }
 
-static __sum16 udp_pseudoheader_sum(struct iphdr *iph, struct udphdr *udp) {
-  __wsum sum;
-  __be32 saddr = get_unaligned(&iph->saddr);
-  __be32 daddr = get_unaligned(&iph->daddr);
-
-  sum = (__be16) (saddr >> 16);
-  sum += (__be16) (saddr & 0xFFFF);
-  sum += (__be16) (daddr >> 16);
-  sum += (__be16) (daddr & 0xFFFF);
-  sum += htons(IPPROTO_UDP);
-  sum += udp->len;
-
-  return csum16_fold(sum);
-}
-
-static __sum16 udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
+static __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
   __wsum sum = 0;
   int    i;
 
@@ -260,11 +242,11 @@ static __sum16 udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) 
   // 高16位为0
   sum += htons(IPPROTO_UDP); // 低16位
 
-  return csum16_fold(sum);
+  return sum;
 }
 
 // icmp_len: icmp头部+icmp负载长度，主机字序
-static __sum16 icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
+static __wsum icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
   __wsum sum = 0;
   // 需要转换为大端
   __be32 be_icmp_len = htonl(icmp_len);
@@ -285,19 +267,19 @@ static __sum16 icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
 
   // 3字节0 + 下一个字节是协议号
   sum += htons(IPPROTO_ICMPV6);
-  return csum16_fold(sum);
+  return sum;
 }
 
 // 结果为大端
-static __sum16 udp_header_sum(struct udphdr *udp) {
+static __wsum udp_header_sum(struct udphdr *udp) {
   __wsum sum;
 
-  sum = (__be16) udp->source;
-  sum += (__be16) udp->dest;
-  sum += (__be16) udp->len;
+  sum = udp->source;
+  sum += udp->dest;
+  sum += udp->len;
   // 检验和字段视为0，不做加法
 
-  return csum16_fold(sum);
+  return sum;
 }
 
 static void ipv6_copy(struct in6_addr *dst, const struct in6_addr *src) {
@@ -391,7 +373,7 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
 }
 
 // 从icmp头部生成检验和，跳过了checksum本身（视为0)
-static __be16 icmphdr_cksum(struct icmphdr *icmp) {
+static __wsum icmphdr_cksum(struct icmphdr *icmp) {
   // 计算ICMP头部校验和
   __wsum  sum;
   __be16 *p = (__be16 *) icmp;
@@ -401,24 +383,24 @@ static __be16 icmphdr_cksum(struct icmphdr *icmp) {
   sum += p[2];
   sum += p[3];
 
-  return csum16_fold(sum);
+  return sum;
 }
 
 // 从icmp检验和恢复udp负载的检验和, 支持icmpv6
-static __be16 recover_payload_csum_from_icmp(struct icmphdr *icmp, struct ipv6hdr *ipv6, u32 payload_len) {
-  __be16 payload_sum = (~icmp->checksum & 0xFFFF);
-  __be16 icmphdr_sum = icmphdr_cksum(icmp);
+static __wsum recover_payload_csum_from_icmp(struct icmphdr *icmp, struct ipv6hdr *ipv6, u32 payload_len) {
+  __wsum payload_sum = (~icmp->checksum & 0xFFFF);
+  __wsum icmphdr_sum = icmphdr_cksum(icmp);
 
   // 将icmp检验和取反后，减去掉icmp头部检验和
-  payload_sum = csum16_sub(payload_sum, icmphdr_sum);
+  payload_sum = csum_sub(payload_sum, icmphdr_sum);
 
   if (ipv6) {
     // IPV6下，icmp也要计算icmp伪头部:
     // 由于icmp检验和 = ~(icmp伪头部 + icmp头部 + icmp负载)
     // 所以icmp负载 = ~icmp检验和 - icmp头部 - icmp伪头部
     // 于是还需要减去IPv6 icmp伪头部
-    __sum16 csum = icmpv6_pseudoheader_sum(ipv6, payload_len + sizeof(struct icmphdr));
-    payload_sum  = csum16_sub(payload_sum, csum);
+    __wsum csum = icmpv6_pseudoheader_sum(ipv6, payload_len + sizeof(struct icmphdr));
+    payload_sum = csum_sub(payload_sum, csum);
   }
 
   return payload_sum;
@@ -826,12 +808,12 @@ err_cleanup:
 }
 
 // 更新udp检验和
-static void update_udp_cksum(struct udphdr *udp, __be16 pseudo_sum, __be16 payload_sum) {
-  __be16 udp_hdr_sum = udp_header_sum(udp);
-  __be16 new_udp_sum = csum16_add(pseudo_sum, udp_hdr_sum);
+static void update_udp_cksum(struct udphdr *udp, __wsum pseudo_sum, __wsum payload_sum) {
+  __wsum udp_hdr_sum = udp_header_sum(udp);
+  __wsum new_udp_sum = csum_add(pseudo_sum, udp_hdr_sum);
 
-  new_udp_sum = csum16_add(new_udp_sum, payload_sum);
-  udp->check  = ~new_udp_sum;
+  new_udp_sum = csum_add(new_udp_sum, payload_sum);
+  udp->check  = csum_fold(new_udp_sum);
 
   // rfc768规定
   if (!udp->check)
@@ -1042,11 +1024,11 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   _Static_assert(sizeof(udp_hdr) == 8, "ICMP and UDP header sizes must match");
 
   {
-    __be16 payload_sum = recover_payload_csum_from_icmp(&old_icmp, ipv6, payload_len);
+    __wsum payload_sum = recover_payload_csum_from_icmp(&old_icmp, ipv6, payload_len);
 
     pr_debug("payload sum: %04x\n", payload_sum);
 
-    __be32 udp_pseudo_sum = 0;
+    __wsum udp_pseudo_sum = 0;
 
     if (ipv4) {
       udp_pseudo_sum = udp_pseudoheader_sum(ipv4, &udp_hdr);
