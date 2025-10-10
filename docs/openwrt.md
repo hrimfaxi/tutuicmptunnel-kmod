@@ -4,7 +4,7 @@
 
 `tutuicmptunnel-bpf` 可以在标准的 `OpenWrt` 固件上运行。
 
-本指南将详细介绍如何通过自定义 `OpenWrt` 固件编译，并交叉编译 `tutuicmptunnel` 项目，使其在您的 `OpenWrt` 设备上成功运行客户端模式。
+本指南将详细介绍如何通过自定义 `OpenWrt` 固件编译，并交叉编译 `tutuicmptunnel-bpf` 项目，使其在您的 `OpenWrt` 设备上成功运行客户端模式。
 
 ## 环境准备
 
@@ -38,7 +38,8 @@ cd ..
 git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod.git
 cd tutuicmptunnel-kmod
 rm -f CMakeCache.txt
-cmake -DCMAKE_TOOLCHAIN_FILE=$(pwd)/toolchains/openwrt-aarch64.cmake \
+cmake -DENABLE_HARDEN_MODE=1 \
+      -DCMAKE_TOOLCHAIN_FILE=$(pwd)/toolchains/openwrt-aarch64.cmake \
       -DSODIUM_INCLUDE_DIR=$(pwd)/../libsodium/src/libsodium/include \
       -DSODIUM_LIBRARY=$(pwd)/../libsodium/src/libsodium/.libs/libsodium.so \
       .
