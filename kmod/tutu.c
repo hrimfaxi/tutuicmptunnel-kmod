@@ -817,7 +817,7 @@ static void update_udp_cksum(struct udphdr *udp, __wsum pseudo_sum, __wsum paylo
 
   // rfc768规定
   if (!udp->check)
-    udp->check = 0xffff;
+    udp->check = CSUM_MANGLED_0;
 }
 
 static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
