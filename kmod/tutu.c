@@ -221,8 +221,16 @@ static __always_inline __wsum udp_pseudoheader_sum(struct iphdr *iph, struct udp
 }
 
 static __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
-  __wsum sum = 0;
+  __wsum sum;
   int    i;
+
+  // UDP长度 (32位，高16位为0)
+  // 高16位为0
+  sum = udp->len; // 低16位
+
+  // 协议号 (32位，高16位为0，低16位是协议号)
+  // 高16位为0
+  sum += htons(IPPROTO_UDP); // 低16位
 
   // IPv6源地址 (16字节 = 4个32位字)
   for (i = 0; i < 4; i++) {
@@ -234,22 +242,21 @@ static __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
     sum = csum_add(sum, ip6h->daddr.in6_u.u6_addr32[i]);
   }
 
-  // UDP长度 (32位，高16位为0)
-  // 高16位为0
-  sum += udp->len; // 低16位
-
-  // 协议号 (32位，高16位为0，低16位是协议号)
-  // 高16位为0
-  sum += htons(IPPROTO_UDP); // 低16位
-
   return sum;
 }
 
 // icmp_len: icmp头部+icmp负载长度，主机字序
 static __wsum icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
-  __wsum sum = 0;
+  __wsum sum;
   // 需要转换为大端
   __be32 be_icmp_len = htonl(icmp_len);
+
+  // ICMPv6长度，高16位+低16位
+  sum = be_icmp_len >> 16;     // 高16位
+  sum += be_icmp_len & 0xFFFF; // 低16位
+
+  // 3字节0 + 下一个字节是协议号
+  sum += htons(IPPROTO_ICMPV6);
 
   // 源地址
   for (int i = 0; i < 4; i++) {
@@ -261,20 +268,13 @@ static __wsum icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
     sum = csum_add(sum, ip6h->daddr.in6_u.u6_addr32[i]);
   }
 
-  // ICMPv6长度，高16位+低16位
-  sum += be_icmp_len >> 16;    // 高16位
-  sum += be_icmp_len & 0xFFFF; // 低16位
-
-  // 3字节0 + 下一个字节是协议号
-  sum += htons(IPPROTO_ICMPV6);
   return sum;
 }
 
 // 结果为大端
 static __wsum udp_header_sum(struct udphdr *udp) {
-  __wsum sum;
+  __wsum sum = udp->source;
 
-  sum = udp->source;
   sum += udp->dest;
   sum += udp->len;
   // 检验和字段视为0，不做加法
