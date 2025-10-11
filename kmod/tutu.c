@@ -33,7 +33,7 @@
 static char *ifnames;
 MODULE_PARM_DESC(ifnames, "Comma-separated list of interface names to allow (empty means no filtering)");
 
-static u32 dev_mode = 0700;
+static u32 dev_mode = 0400;
 module_param(dev_mode, int, 0);
 MODULE_PARM_DESC(dev_mode, "default device right, default: 0700");
 
