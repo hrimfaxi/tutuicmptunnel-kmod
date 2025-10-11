@@ -220,10 +220,6 @@ static __always_inline __wsum udp_pseudoheader_sum(struct iphdr *iph, struct udp
   return csum_tcpudp_nofold(iph->saddr, iph->daddr, ntohs(udp->len), IPPROTO_UDP, 0);
 }
 
-static __always_inline __wsum udpv6_pseudoheader_sum(struct ipv6hdr *ip6h, struct udphdr *udp) {
-  return csum_unfold(~csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, ntohs(udp->len), IPPROTO_UDP, 0));
-}
-
 // icmp_len: icmp头部+icmp负载长度，主机字序
 static __always_inline __wsum icmpv6_pseudoheader_sum(struct ipv6hdr *ip6h, u32 icmp_len) {
   return csum_unfold(~csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, 0));
@@ -764,12 +760,24 @@ err_cleanup:
 }
 
 // 更新udp检验和
-static void update_udp_cksum(struct udphdr *udp, __wsum pseudo_sum, __wsum payload_sum) {
-  __wsum udp_hdr_sum = udp_header_sum(udp);
-  __wsum new_udp_sum = csum_add(pseudo_sum, udp_hdr_sum);
+static void update_udp_cksum(struct iphdr *ipv4, struct ipv6hdr *ipv6, struct udphdr *udp, __wsum payload_sum) {
+  __wsum total_sum;
 
-  new_udp_sum = csum_add(new_udp_sum, payload_sum);
-  udp->check  = csum_fold(new_udp_sum);
+  // 先把 UDP头部的检验和和负载的检验和加在一起
+  total_sum = csum_add(udp_header_sum(udp), payload_sum);
+
+  if (ipv4) {
+    // 加上 IPv4 伪头部
+    __wsum pseudo_sum = udp_pseudoheader_sum(ipv4, udp);
+    // 折叠
+    udp->check = csum_fold(csum_add(total_sum, pseudo_sum));
+  } else if (ipv6) {
+    // 直接使用csum_ipv6_magic()完成
+    udp->check = csum_ipv6_magic(&ipv6->saddr, &ipv6->daddr, ntohs(udp->len), IPPROTO_UDP, total_sum);
+  } else {
+    WARN_ONCE(1, "neither ipv4 nor ipv6 packet");
+    udp->check = 0;
+  }
 
   // rfc768规定
   if (!udp->check)
@@ -987,16 +995,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     __wsum payload_sum = recover_payload_csum_from_icmp(&old_icmp, ipv6, payload_len);
 
     pr_debug("payload sum: %04x\n", payload_sum);
-
-    __wsum udp_pseudo_sum = 0;
-
-    if (ipv4) {
-      udp_pseudo_sum = udp_pseudoheader_sum(ipv4, &udp_hdr);
-    } else if (ipv6) {
-      udp_pseudo_sum = udpv6_pseudoheader_sum(ipv6, &udp_hdr);
-    }
-
-    update_udp_cksum(&udp_hdr, udp_pseudo_sum, payload_sum);
+    update_udp_cksum(ipv4, ipv6, &udp_hdr, payload_sum);
   }
 
   // Replace ICMP header with UDP header
