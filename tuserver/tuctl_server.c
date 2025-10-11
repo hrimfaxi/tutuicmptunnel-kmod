@@ -139,6 +139,17 @@ static bool detect_ktuctl(void) {
   return false;
 }
 
+static bool sudo_enabled(void) {
+  const char *val   = getenv("TUTUICMPTUNNEL_DISABLE_SUDO");
+  uint32_t    val_n = 0;
+
+  if (val && !parse_u32(val, &val_n) && val_n) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * @brief Executes a command in a child process, capturing stdout/stderr.
  * @param[out] resp_buf      Buffer to store the command's output.
@@ -151,6 +162,7 @@ static int execute_command(char *resp_buf, size_t *resp_len_out, size_t resp_buf
   int   inpipe[2]  = {-1, -1};
   int   outpipe[2] = {-1, -1};
   pid_t pid;
+  bool  sudo = sudo_enabled();
 
   const char *tuctl_prog = "tuctl";
 
@@ -176,8 +188,16 @@ static int execute_command(char *resp_buf, size_t *resp_len_out, size_t resp_buf
     dup2(outpipe[1], 2); // Redirect stderr to outpipe
     close(outpipe[1]);
 
-    execlp("sudo", "sudo", tuctl_prog, "script", "-", NULL);
+    if (sudo) {
+      execlp("sudo", "sudo", tuctl_prog, "script", "-", NULL);
+    } else {
+      execlp(tuctl_prog, tuctl_prog, "script", "-", NULL);
+    }
+
     perror("execlp"); // Should not be reached
+    if (sudo) {
+      log_error("sudo enabled, please check sudo setting");
+    }
     exit(127);
   } else {
     // --- Parent Process ---
