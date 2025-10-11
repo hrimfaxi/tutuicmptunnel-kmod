@@ -832,6 +832,50 @@ static int get_stats_map(int fd, struct tutu_stats *stats) {
   return err;
 }
 
+static int get_boot_seconds(__u64 *seconds) {
+  if (!seconds)
+    return -EINVAL;
+
+  struct timespec ts;
+
+#ifdef CLOCK_BOOTTIME
+  if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0) {
+    if (ts.tv_sec < 0)
+      return -EFAULT;
+    *seconds = (__u64) ts.tv_sec;
+    return 0;
+  } else if (errno != EINVAL && errno != ENOTSUP) {
+    return -errno;
+  }
+#endif
+
+  // 2) 回退 CLOCK_MONOTONIC（不包含挂起）
+#ifdef CLOCK_MONOTONIC
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+    if (ts.tv_sec < 0)
+      return -EFAULT;
+    *seconds = (__u64) ts.tv_sec;
+    return 0;
+  }
+#endif
+
+  // 3) 最后回退到 /proc/uptime
+  FILE *f = fopen("/proc/uptime", "re");
+  if (f) {
+    double up      = 0.0;
+    int    scanned = fscanf(f, "%lf", &up);
+    fclose(f);
+    if (scanned == 1 && up >= 0.0) {
+      *seconds = (__u64) up;
+      return 0;
+    }
+
+    return -EIO;
+  }
+
+  return -errno;
+}
+
 int cmd_status(int argc, char **argv) {
   int err = 0;
 
@@ -890,8 +934,10 @@ int cmd_status(int argc, char **argv) {
 
     if (debug) {
       struct tutu_session session;
+      __u64               boot = 0;
 
-      printf("\nSessions (max age: %u):\n", cfg.session_max_age);
+      try2(get_boot_seconds(&boot), _("failed to get boot seconds: %s"), strret);
+      printf("\nSessions (max age: %u, current: %llu):\n", cfg.session_max_age, boot);
       err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_SESSION, &session);
 
       if (err == 0) {
