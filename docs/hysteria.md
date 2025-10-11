@@ -2,14 +2,12 @@
 
 ## 示例展示
 
-```
-本地 ‑(SOCKS5)→ Hysteria-UDP ‑(ICMP)→ 服务器
-全部参数均已抽象为占位符，请按实际情况替换，尤其是域名 / 密钥。
-⚠️ 文档刻意省略了真实 SNI、密码、IP 等敏感信息，请勿在公开场合留下明文。
-```
+> 本地 ‑(SOCKS5)→ Hysteria-UDP ‑(ICMP)→ 服务器 \
+> 全部参数均已抽象为占位符，请按实际情况替换，尤其是域名 / 密钥。 \
+> ⚠️ 文档刻意省略了真实 SNI、密码、IP 等敏感信息，请勿在公开场合留下明文。
 
 我们假设你现在有一个可以用的`hysteria`配置，`UDP`端口为`3322`。
-现在你需要使用`tutuicmptunnel`将流量转变为`ICMP`协议。
+现在你需要使用`tutuicmptunnel-kmod`将流量转变为`ICMP`协议。
 
 ## 依赖
 
@@ -25,7 +23,7 @@ sudo apt-get install curl
 sudo pacman -S curl
 ```
 
-## `tutuicmptunnel`设置
+## `tutuicmptunnel-kmod`设置
 
 首先要在服务器上为你的客户端设备选好一个`UID`，比如说主机名为`a320`，`UID`为100。
 
@@ -39,10 +37,10 @@ sudo pacman -S curl
 
 ## 修改systemd 单元文件
 
-注意`tutuicmptunnel`无法处理`GSO`包，需要关闭`hysteria`的相关功能。
+注意`tutuicmptunnel-kmod`无法处理`GSO`包，需要关闭`hysteria`的相关功能。
 通过设置环境变量`QUIC_GO_DISABLE_GSO=1`，如下所示：
 
- `/etc/systemd/system/hysteria-server@.service`:
+`/etc/systemd/system/hysteria-server@.service`:
 
 ```ini
 [Unit]
@@ -63,18 +61,9 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-## 清理过期会话
-
-如果架构不支持`bpf_timer`才需要需要清理过期会话（`mips`或者较低版本的`ubuntu`)
-
-```bash
-sudo cp contrib/etc/systemd/system/tutuicmptunnel-server-reaper.timer /etc/systemd/system/
-sudo systemctl enable --now tutuicmptunnel-server-reaper.timer
-```
-
 ### 同步客户端`ip`脚本
 
-可以在客户端上使用`tuctl_client`工具来远程修改服务器的`tuctl`配置，这样客户端公网`IP`切换了也可以通知服务器。
+可以在客户端上使用`tuctl_client`工具来远程修改服务器的`ktuctl`配置，这样客户端公网`IP`切换了也可以通知服务器。
 
 `/usr/local/bin/tutuicmptunnel_sync.sh`:
 
@@ -90,19 +79,20 @@ V() {
 
 TMP=$(mktemp)
 export DEV=eth0 # 你的客户端的上网接口名
-sudo tuctl dump > $TMP
-sudo tuctl unload iface $DEV
-sudo tuctl load iface $DEV #ethhdr #debug
+sudo ktuctl dump > $TMP
+sudo rmmod tutuicmptunnel
+sudo modprobe tutuicmptunnel
 
 export TUTU_UID=100 # 替换为你的服务器上选好的uid或用户名
 export ADDRESS=yourdomain.com # 替换为你的hysteria服务器域名或IP
 export PORT=3322 # 替换为你的hysteria服务器udp端口
 
-sudo tuctl script - < $TMP
-sudo tuctl client
-sudo tuctl client-add address $ADDRESS port $PORT user $TUTU_UID
+sudo ktuctl script - < $TMP
+sudo ktuctl client
+sudo ktuctl client-del address $ADDRESS user $TUTU_UID
+sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
 
-export COMMENT=yourdevice # 替换为你的客户端的注释，此注释会在服务器的tuctl命令上显示
+export COMMENT=yourdevice # 替换为你的客户端的注释，此注释会在服务器的ktuctl命令上显示
 export HOST=$ADDRESS
 export PSK=yourlongpsk # 替换为你的tuctl_server的PSK口令
 export SERVER_PORT=your_tuserver_port # 替换为你的tuctl_server的端口
@@ -111,12 +101,15 @@ export SERVER_PORT=your_tuserver_port # 替换为你的tuctl_server的端口
 IP=$(curl -s ip.3322.net)
 echo local ip: $IP
 
-V tuctl_client psk $PSK server $HOST server-port $SERVER_PORT <<<"server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT"
+echo "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT" | V tuctl_client \
+  psk $PSK \
+  server $HOST \
+  server-port $SERVER_PORT
 
 # vim: set sw=2 expandtab:
 ```
 
-### 启动`tutuicmptunnel`
+### 启动`tutuicmptunnel-kmod`
 
 ```bash
 
@@ -174,13 +167,7 @@ hysteria speedtest -c client.yaml
 查看 ICMP 隧道计数：
 
 ```bash
-sudo tuctl -d
-```
-
-`BPF`日志：
-
-```bash
-sudo bpftool prog tracelog
+sudo ktuctl -d
 ```
 
 查看是否有icmp包：
