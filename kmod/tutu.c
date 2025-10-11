@@ -340,7 +340,7 @@ static __wsum icmphdr_cksum(struct icmphdr *icmp) {
 
 // 从icmp检验和恢复udp负载的检验和, 支持icmpv6
 static __wsum recover_payload_csum_from_icmp(struct icmphdr *icmp, struct ipv6hdr *ipv6, u32 payload_len) {
-  __wsum payload_sum = (~icmp->checksum & 0xFFFF);
+  __wsum payload_sum = csum_unfold(~icmp->checksum);
   __wsum icmphdr_sum = icmphdr_cksum(icmp);
 
   // 将icmp检验和取反后，减去掉icmp头部检验和
