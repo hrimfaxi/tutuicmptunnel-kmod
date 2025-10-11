@@ -5,7 +5,7 @@
 
 ## 优点与特性
 
-1. 同等`cpu`下最大流量比`udp2raw`快几倍，同时`cpu`占用资源用少的多。参见[性能测试](docs/benchmark.md)
+1. 同等`cpu`下最大流量比`udp2raw`快几倍，同时`cpu`占用资源用少的多。参见[性能测试](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
 2. 安全的设计与实现
 3. 和基于`bpf`的`tutuicmptunnel`相比，快22%左右。不需要重编译内核即可支持`openwrt`。
 4. 支持`ipv4/ipv6`下的`icmp`/`icmp6`
