@@ -1,6 +1,6 @@
 # iperf3
 
-下面示例演示如何用 `tuctl` 搭建 **UDP-over-ICMP 隧道**，并通过 `iperf3` 进行吞吐测试。
+下面示例演示如何用 `ktuctl` 搭建 **UDP-over-ICMP 隧道**，并通过 `iperf3` 进行吞吐测试。
 假设：
 
 * 服务器主机名：`a320`（`SSH`配置了免密登陆）
@@ -27,15 +27,15 @@ LOCAL_DEV=wlan0              # 客户端出口网卡名
 COMMENT=r7735h               # 备注，可随意
 
 # -------- 服务器端 --------
-ssh $HOST sudo tuctl unload iface $HOST_DEV
-ssh $HOST sudo tuctl load   iface $HOST_DEV
-ssh $HOST sudo tuctl server
-ssh $HOST sudo tuctl server-add uid $UID address $LOCAL port $PORT comment $COMMENT
+ssh $HOST sudo rmmod tutuicmptunnel
+ssh $HOST sudo modprobe tutuicmptunnel
+ssh $HOST sudo ktuctl server
+ssh $HOST sudo ktuctl server-add uid $UID address $LOCAL port $PORT comment $COMMENT
 
 # -------- 客户端 --------
-cat << EOF | sudo tuctl script -
-unload iface $LOCAL_DEV
-load   iface $LOCAL_DEV ethhdr
+sudo rmmod tutuicmptunnel
+sudo modprobe tutuicmptunnel
+cat << EOF | sudo ktuctl script -
 client
 client-add uid $UID address $HOST port $PORT
 EOF
@@ -66,17 +66,16 @@ iperf3 -c a320 -p 3322 -u -b 1000m -t 3600 -l 1472 -R
 观察结果：
 
 * `iperf3` 客户端/服务器输出即为隧道实测带宽、丢包率、抖动等。
-* 在两端另开终端执行 `sudo tuctl status debug` 可查看隧道处理 / 丢弃 / GSO 等计数。
-* `sudo cat /sys/kernel/tracing/trace_pipe`(或 `bpftool prog tracelog`) 可查看 `bpf_printk` 日志（如加载了 `debug` 版本）。
+* 在两端另开终端执行 `sudo ktuctl status -d` 可查看隧道处理 / 丢弃 / GSO 等计数。
 
 ## 清理
 
 ```bash
 # 客户端
-sudo tuctl unload iface $LOCAL_DEV
+sudo rmmod tutuicmptunnel
 
 # 服务器
-ssh a320 sudo tuctl unload iface $HOST_DEV
+ssh a320 sudo rmmod tutuicmptunnel
 ```
 
 至此完成一次基于`ICMP`隧道的 `iperf3` 吞吐测试。
