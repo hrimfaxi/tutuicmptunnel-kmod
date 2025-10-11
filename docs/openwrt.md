@@ -2,9 +2,8 @@
 
 ## 概述
 
-`tutuicmptunnel-bpf` 可以在标准的 `OpenWrt` 固件上运行。
-
-本指南将详细介绍如何通过自定义 `OpenWrt` 固件编译，并交叉编译 `tutuicmptunnel-bpf` 项目，使其在您的 `OpenWrt` 设备上成功运行客户端模式。
+`tutuicmptunnel-kmod` 可以在标准的 `OpenWrt` 固件上运行。
+本指南将详细介绍交叉编译 `tutuicmptunnel-kmod` 项目，使其在 `OpenWrt` 设备上成功运行客户端模式。
 
 ## 环境准备
 
@@ -87,6 +86,6 @@ modprobe tutuicmptunnel
 
 要点
 
-    服务器与客户端必须使用相同的数值，否则将无法建立通信。
-    该参数数值越小，内存占用越低，但安全性也会相应下降，请根据设备能力和风险评估进行权衡。
-    服务器与客户端的TUTUICMPTUNNEL_PWHASH_MEMLIMIT必须一致；不一致将导致握手失败、无法通信。
+> 服务器与客户端必须使用相同的数值，否则将无法建立通信。 \
+> 该参数数值越小，内存占用越低，但安全性也会相应下降，请根据设备能力和风险评估进行权衡。 \
+> 服务器与客户端的TUTUICMPTUNNEL_PWHASH_MEMLIMIT必须一致；不一致将导致握手失败、无法通信。
