@@ -6,14 +6,15 @@
 首先，将`xray-core`的`inbound`输入（通常为`TCP`端口）转发到本地的`kcptun-server`所监听的`UDP` 端口。
 在客户端，需要启动一个`kcptun-client`，负责将本地的 `TCP`（如 `TLS` 流量）转为 `KCP` 协议。
 此时，中间节点看到的是`KCP`流量(`UDP`)。有时会被`ISP` `QOS`。
-在此基础上，我们可以用`tutuicmptunnel`对`UDP`流量再做一层封装，将其转换为`ICMP`流量。
+在此基础上，我们可以用`tutuicmptunnel-kmod`对`UDP`流量再做一层封装，将其转换为`ICMP`流量。
 这样，最终中间节点所看到的，仅仅是`ICMP`报文，进一步提升了流量的隐蔽性和穿透能力。
 
 ## 前提
 
 本文假设你已经拥有一套可用的`xray-core`服务端和客户端配置，服务器监听的端口为`20000`（`TCP` `TLS`端口）。
 同时，你已经在服务器和客户端两端分别安装好了最新版的 `kcptun-server` 和 `kcptun-client`，放在`/usr/local/bin`目录。
-接下来，我们将首先利用`kcptun`将通信路径上的流量从`TCP`转换 为`UDP`，然后再通过`tutuicmptunnel`进一步将`UDP`流量封装为`ICMP`，实现最终的数据穿透和伪装。
+接下来，我们将首先利用`kcptun`将通信路径上的流量从`TCP`转换 为`UDP`，
+然后再通过`tutuicmptunnel-kmod`进一步将`UDP`流量封装为`ICMP`，实现最终的数据穿透和伪装。
 
 ### KCPTun-server
 
@@ -204,7 +205,7 @@ xray -c xxx-kcp.json
 tcpdump -i any udp and port 3323 -n -v
 ```
 
-### 设置tutuicmptunnel
+### 设置tutuicmptunnel-kmod
 
 首先服务器/客户端上检查是否有`tutu_csum_fixup`，一般推荐使用它。
 
@@ -226,19 +227,19 @@ V() {
 TMP=$(mktemp)
 export DEV=enp4s0 # 你的客户端的上网接口名
 
-sudo tuctl dump > $TMP
-sudo tuctl unload iface $DEV
-sudo tuctl load iface $DEV #ethhdr #debug
+sudo ktuctl dump > $TMP
+sudo rmmod tutuicmptunnel
+sudo modprobe tutuicmptunnel ifnames=$DEV
 
 export TUTU_UID=yourdevice # 替换为你的服务器上选好的uid
 export ADDRESS=yourdomain.com # 替换为你的xray-core服务器域名或IP
 export PORT=3323 # 替换为你的xray-core服务器udp端口
 
-sudo tuctl script - < $TMP
-sudo tuctl client
-sudo tuctl client-add address $ADDRESS port $PORT user $TUTU_UID
+sudo ktuctl script - < $TMP
+sudo ktuctl client
+sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
 
-export COMMENT=yourdevice # 替换为你的客户端的注释，此注释会在服务器的tuctl命令上显示
+export COMMENT=yourdevice # 替换为你的客户端的注释，此注释会在服务器的ktuctl命令上显示
 export HOST=$ADDRESS
 export PSK=yourlongpsk # 替换为你的tuctl_server的PSK口令
 export SERVER_PORT=3321 # 替换为你的tuctl_server的端口
@@ -247,7 +248,10 @@ export SERVER_PORT=3321 # 替换为你的tuctl_server的端口
 IP=$(curl -s ip.3322.net)
 echo local ip: $IP
 
-V tuctl_client psk $PSK server $HOST server-port $SERVER_PORT <<<"server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT"
+echo "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT" | V tuctl_client \
+  psk $PSK \
+  server $HOST \
+  server-port $SERVER_PORT
 
 # vim: set sw=2 expandtab:
 ```
