@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -23,9 +22,6 @@
 #define HOMEPAGE_STR "https://github.com/hrimfaxi/" STR(PROJECT_NAME)
 
 #include "tutuicmptunnel.h"
-
-#define TC_HANDLE_DEFAULT   1
-#define TC_PRIORITY_DEFAULT 1
 
 #define TUTU_MAP_FOREACH(fd, entry, GET_FIRST, GET_NEXT, LOOKUP, body)                                                         \
   do {                                                                                                                         \
