@@ -25,9 +25,9 @@
 
 #define TUTU_MAP_FOREACH(fd, entry, GET_FIRST, GET_NEXT, LOOKUP, body)                                                         \
   do {                                                                                                                         \
-    try2(ioctl(fd, GET_FIRST, &(entry)), "get first: %s", strerrno);                                                           \
+    try2(ioctl(fd, GET_FIRST, &(entry)), #GET_FIRST ": %s", strerrno);                                                         \
     do {                                                                                                                       \
-      try2(ioctl(fd, LOOKUP, &(entry)), "lookup: %s", strerrno);                                                               \
+      try2(ioctl(fd, LOOKUP, &(entry)), #LOOKUP ": %s", strerrno);                                                             \
       body                                                                                                                     \
     } while (!ioctl(fd, GET_NEXT, &(entry)));                                                                                  \
   } while (0)
