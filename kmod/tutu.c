@@ -569,6 +569,10 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     ipv4 = ip_hdr(skb);
   } else if (ip_type == 6) {
     ipv6 = ipv6_hdr(skb);
+  } else {
+    // 不可能
+    err = NF_ACCEPT;
+    goto err_cleanup;
   }
 
   struct user_info *user = NULL;
@@ -821,6 +825,10 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     ipv4 = ip_hdr(skb);
   } else if (ip_type == 6) {
     ipv6 = ipv6_hdr(skb);
+  } else {
+    // 不可能
+    err = NF_ACCEPT;
+    goto err_cleanup;
   }
 
   // 由于icmp和icmp6hdr大小相等，而且前4字节完全等价，我们使用icmphdr作为表示icmp头部的类型
