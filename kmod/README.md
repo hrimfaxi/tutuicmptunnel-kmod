@@ -28,7 +28,19 @@ modprobe tutuicmptunnel force_sw_checksum=1 dev_mode=0777 ifnames=wlan0,pppoe-wa
   - 示例：wlan0,pppoe-wan,wan
   - 默认值：空（不限制，作用于所有接口）
 
-以上参数中的 force_sw_checksum 与 ifnames 支持运行时动态调整；dev_mode 通常作为加载时参数生效。
+- egress_peer_map_size
+  - 说明: egress peer map大小，必须为2的幕次，不得小于256
+  - 默认值: 1024
+
+- ingress_peer_map_size
+  - 说明: ingress peer map大小，必须为2的幕次，不得小于256
+  - 默认值: 1024
+
+- session_map_size
+  - 说明: session map大小，必须为2的幕次，不得小于256
+  - 默认值: 16384
+
+以上参数中的`force_sw_checksum` 与 `ifnames` 支持运行时动态调整；其余参数作为加载时参数生效，不能修改。
 
 ## 运行时调整示例
 

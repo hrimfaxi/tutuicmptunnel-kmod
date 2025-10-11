@@ -1454,10 +1454,28 @@ static char *devnode(const struct device *dev, umode_t *mode) {
   return NULL;
 }
 
+static unsigned int egress_peer_map_size = 1024;
+module_param(egress_peer_map_size, uint, 0400);
+MODULE_PARM_DESC(egress_peer_map_size, "Size for the egress peer map, must be power of 2");
+
+static unsigned int ingress_peer_map_size = 1024;
+module_param(ingress_peer_map_size, uint, 0400);
+MODULE_PARM_DESC(ingress_peer_map_size, "Size for the ingress peer map, must be power of 2");
+
+static unsigned int session_map_size = 16384;
+module_param(session_map_size, uint, 0400);
+MODULE_PARM_DESC(session_map_size, "Size for the session map, must be power of 2");
+
 static int __init tutuicmptunnel_module_init(void) {
   int                     err;
   struct tutu_config_rcu *cfg_init;
   struct device          *dev;
+
+  if (!is_power_of_2(egress_peer_map_size) || !is_power_of_2(ingress_peer_map_size) || !is_power_of_2(session_map_size) ||
+      egress_peer_map_size < 256 || ingress_peer_map_size < 256 || session_map_size < 256) {
+    pr_err("Invalid map size: all map sizes must be a power of 2 and >= 256.\n");
+    return -EINVAL;
+  }
 
   err = reload_config_from_param();
   if (err) {
@@ -1465,21 +1483,21 @@ static int __init tutuicmptunnel_module_init(void) {
     return err;
   }
 
-  egress_peer_map = tutu_map_alloc(sizeof(struct egress_peer_key), sizeof(struct egress_peer_value), 1024);
+  egress_peer_map = tutu_map_alloc(sizeof(struct egress_peer_key), sizeof(struct egress_peer_value), egress_peer_map_size);
   if (IS_ERR(egress_peer_map)) {
     err = PTR_ERR(egress_peer_map);
     pr_err("failed to create egress peer map: %d\n", err);
     goto err_free_ifset;
   }
 
-  ingress_peer_map = tutu_map_alloc(sizeof(struct ingress_peer_key), sizeof(struct ingress_peer_value), 1024);
+  ingress_peer_map = tutu_map_alloc(sizeof(struct ingress_peer_key), sizeof(struct ingress_peer_value), ingress_peer_map_size);
   if (IS_ERR(ingress_peer_map)) {
     err = PTR_ERR(ingress_peer_map);
     pr_err("failed to create ingress peer map: %d\n", err);
     goto err_free_egress_peer_map;
   }
 
-  session_map = tutu_map_alloc(sizeof(struct session_key), sizeof(struct session_value), 1024);
+  session_map = tutu_map_alloc(sizeof(struct session_key), sizeof(struct session_value), session_map_size);
   if (IS_ERR(session_map)) {
     err = PTR_ERR(session_map);
     pr_err("failed to create session map: %d\n", err);
