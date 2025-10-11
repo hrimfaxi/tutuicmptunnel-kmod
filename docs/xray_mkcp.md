@@ -2,11 +2,11 @@
 
 ## 概述
 
-`xray-core` `mKCP` 可替代 “xray-core + kcptun” 双进程方案。优势主要是:
+`xray-core` `mKCP` 可替代 `xray-core` + `kcptun` 双进程方案。优势主要是:
 
 - 去除双进程间拷贝与上下文切换开销。
-- mKCP 对 xray-core 更友好，调度与实现更高效。
-- 原生并发多条 mKCP 连接，避免 KCP 写头阻塞。
+- `mKCP` 对 `xray-core` 更友好，调度与实现更高效。
+- 原生并发多条 `mKCP` 连接，避免 `KCP` 写头阻塞。
 
 ## xray-core配置
 
@@ -103,11 +103,11 @@
 
 要点：
 
-- 容量：uplinkCapacity 贴近实际可用上行；downlinkCapacity 设较大（如 100），避免下行瓶颈。
-- 服务器 writeBufferSize 近似原 KCP 的 sndwnd，过大可能造成发包洪水，压垮客户端或网络队列。
-- 实测经验：客户端 readBufferSize ≈ floor(server writeBufferSize × 1.5)，在吞吐与时延间更均衡。
-- 其他：根据链路与硬件微调 mtu、tti、congestion，并观察吞吐、RTT、丢包和 CPU 占用。
-- 建议实际测试 tti 值，因为这部分有点反直觉：发送得太快未必会提升性能，反而可能触发 ICMP 速率限制，导致效率难以提升。
+- 容量：`uplinkCapacity` 贴近实际可用上行；`downlinkCapacity` 设较大（如 100），避免下行瓶颈。
+- 服务器 `writeBufferSize` 近似原 `KCP` 的 `sndwnd`，过大可能造成发包洪水，压垮客户端或网络队列。
+- 实测经验：客户端 `readBufferSize ≈ ceil(server writeBufferSize × 1.5)`，在吞吐与时延间更均衡。
+- 其他：根据链路与硬件微调 `mtu`、`tti`、`congestion`，并观察吞吐、`RTT`、丢包和 `CPU` 占用。
+- 建议实际测试 `tti` 值，因为这部分有点反直觉：发送得太快未必会提升性能，反而可能触发 `ICMP` 速率限制，导致效率难以提升。
 
 ## tutuicmptunnel-kmod配置
 
