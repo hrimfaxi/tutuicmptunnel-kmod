@@ -389,11 +389,6 @@ static __always_inline int skb_store_bytes_linear(struct sk_buff *skb, unsigned 
   return 0;
 }
 
-static inline void ipv4_csum_replace_word(struct iphdr *iph, __be16 old, __be16 newv) {
-  /* iph->check 是 1’s complement sum 的反码，使用 csum_replace2 增量修正 */
-  csum_replace2(&iph->check, old, newv);
-}
-
 // 有可能导致ipv4/ipv6指针失效
 static __always_inline int update_ipv4_checksum(struct sk_buff *skb, struct iphdr *ipv4, u32 l2_len, u32 old_proto,
                                                 u32 new_proto) {
@@ -404,7 +399,7 @@ static __always_inline int update_ipv4_checksum(struct sk_buff *skb, struct iphd
     if (skb_ensure_writable(skb, l2_len + sizeof(struct iphdr)))
       return -ENOMEM;
     ipv4 = ip_hdr(skb);
-    ipv4_csum_replace_word(ipv4, old_word, new_word);
+    csum_replace2(&ipv4->check, old_word, new_word);
   }
 
   return 0;
