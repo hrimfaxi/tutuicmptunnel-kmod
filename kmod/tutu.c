@@ -380,7 +380,7 @@ static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, st
   return 0;
 }
 
-static inline int skb_store_bytes_linear(struct sk_buff *skb, unsigned int off, const void *from, unsigned int len) {
+static __always_inline int skb_store_bytes_linear(struct sk_buff *skb, unsigned int off, const void *from, unsigned int len) {
   /* 已经 pskb_may_pull() 线性化了相关区域，但写之前仍建议确保可写 */
   if (skb_ensure_writable(skb, off + len))
     return -ENOMEM;
