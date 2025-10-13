@@ -56,17 +56,15 @@ struct ifset {
 static struct ifset __rcu *g_ifset;
 static DEFINE_MUTEX(g_ifset_mutex); // 保护ifnames和g_ifset
 
-static unsigned int get_max_ifindex(void) {
+static unsigned int get_max_ifindex_locked(void) {
   struct net_device *dev;
   unsigned int       max_idx = 0;
 
   /* Device enumeration must be done under rtnl_lock */
-  rtnl_lock();
   for_each_netdev(&init_net, dev) {
     if (dev->ifindex > max_idx)
       max_idx = dev->ifindex;
   }
-  rtnl_unlock();
 
   /* if no devices, ensure at least 1 bit so bitmap_alloc works */
   return max_idx ? max_idx : 1;
@@ -86,29 +84,36 @@ static struct ifset *ifset_alloc(unsigned int max_ifindex) {
 
 static int build_ifset_from_names(const char *csv, struct ifset **out_new) {
   struct ifset *w;
-  unsigned int  max_idx = get_max_ifindex();
-  char         *dup     = NULL, *p, *tok;
+  unsigned int  max_idx;
+  char         *dup = NULL, *p, *tok;
+  int           err;
+
+  rtnl_lock();
+  max_idx = get_max_ifindex_locked();
 
   w = ifset_alloc(max_idx);
-  if (!w)
-    return -ENOMEM;
+  if (!w) {
+    err = -ENOMEM;
+    goto out;
+  }
 
   if (!csv || !*csv) {
     /* Empty list => allow all (bitmap left as zero, special-cased later) */
     w->allow_all = true;
     *out_new     = w;
-    return 0;
+    err          = 0;
+    goto out;
   }
 
   w->allow_all = false;
   dup          = kstrdup(csv, GFP_KERNEL);
   if (!dup) {
     kfree(w);
-    return -ENOMEM;
+    err = -ENOMEM;
+    goto out;
   }
   p = dup;
 
-  rtnl_lock();
   while ((tok = strsep(&p, ",;: \t\n")) != NULL) {
     struct net_device *dev;
     if (!*tok)
@@ -122,11 +127,13 @@ static int build_ifset_from_names(const char *csv, struct ifset **out_new) {
       __set_bit(dev->ifindex, w->bitmap);
     dev_put(dev);
   }
-  rtnl_unlock();
 
   kfree(dup);
   *out_new = w;
-  return 0;
+  err      = 0;
+out:
+  rtnl_unlock();
+  return err;
 }
 
 static int reload_config_locked(void) {
