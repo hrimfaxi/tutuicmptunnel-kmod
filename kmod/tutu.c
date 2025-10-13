@@ -188,7 +188,7 @@ static int param_get_ifnames(char *buffer, const struct kernel_param *kp) {
 
 static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
   char  *new_ifnames;
-  char  *val_alloc = NULL, *clean_val = NULL;
+  char  *val_alloc = NULL, *clean_val = NULL, *tmp_ifnames = NULL;
   size_t old_len, add_len;
   int    err = 0;
 
@@ -213,6 +213,31 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
 
   mutex_lock(&g_ifset_mutex);
 
+  if (ifnames && *ifnames) {
+    char *p, *tok;
+    bool  found = false;
+
+    tmp_ifnames = kstrdup(ifnames, GFP_KERNEL);
+    if (!tmp_ifnames) {
+      err = -ENOMEM;
+      goto out;
+    }
+
+    p = tmp_ifnames;
+    while ((tok = strsep(&p, ",")) != NULL) {
+      if (!strcmp(tok, clean_val)) {
+        found = true;
+        break;
+      }
+    }
+
+    if (found) {
+      /* 介面已存在，视为空操作成功，直接退出 */
+      err = 0;
+      goto out;
+    }
+  }
+
   old_len = ifnames ? strlen(ifnames) : 0;
 
   if (old_len) {
@@ -236,6 +261,7 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
   err     = reload_config_locked();
 
 out:
+  kfree(tmp_ifnames);
   mutex_unlock(&g_ifset_mutex);
   kfree(val_alloc);
   return err;
