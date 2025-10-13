@@ -157,15 +157,22 @@ static void free_ifset(void) {
 
 static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
   int err;
+  char  *val_alloc = NULL, *clean_val = NULL;
 
+  val_alloc = kstrdup(val, GFP_KERNEL);
+  if (!val_alloc)
+    return -ENOMEM;
+
+  clean_val = strstrip(val_alloc);
   mutex_lock(&g_ifset_mutex);
-  err = param_set_charp(val, kp); /* updates 'ifnames' */
+  err = param_set_charp(clean_val, kp); /* updates 'ifnames' */
   if (err)
     goto out;
 
   err = reload_config_locked();
 out:
   mutex_unlock(&g_ifset_mutex);
+  kfree(val_alloc);
   return err;
 }
 
