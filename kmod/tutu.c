@@ -171,6 +171,11 @@ static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
 
   // 允许 val 为空或仅空白，表示清空
   if (val && *val) {
+    if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
+      pr_err("%s: string parameter too long\n", kp->name);
+      return -ENOSPC;
+    }
+
     dup = kstrdup(val, GFP_KERNEL);
     if (!dup)
       return -ENOMEM;
@@ -232,6 +237,11 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
 
   if (!val || !*val)
     return 0;
+
+  if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
+    pr_err("%s: string parameter too long\n", kp->name);
+    return -ENOSPC;
+  }
 
   /* 规则：不允许输入中包含逗号 */
   if (strchr(val, ',')) {
@@ -317,6 +327,11 @@ static int param_set_ifnames_remove(const char *val, const struct kernel_param *
 
   if (!val || !*val)
     return 0;
+
+  if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
+    pr_err("%s: string parameter too long\n", kp->name);
+    return -ENOSPC;
+  }
 
   /* 规则：不允许输入中包含逗号 */
   if (strchr(val, ',')) {
