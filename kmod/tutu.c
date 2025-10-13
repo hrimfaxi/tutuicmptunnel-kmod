@@ -229,6 +229,21 @@ static int param_get_ifnames(char *buffer, const struct kernel_param *kp) {
   return n;
 }
 
+static bool net_has_device(const char *dev_name) {
+  struct net_device *dev;
+  bool               found = false;
+
+  rtnl_lock();
+  dev = dev_get_by_name(&init_net, dev_name);
+  if (dev) {
+    found = true;
+    dev_put(dev);
+  }
+  rtnl_unlock();
+
+  return found;
+}
+
 static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
   char  *new_ifnames;
   char  *val_alloc = NULL, *clean_val = NULL, *tmp_ifnames = NULL;
@@ -257,6 +272,12 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
   if (!*clean_val) {
     kfree(val_alloc);
     return 0;
+  }
+
+  if (!net_has_device(clean_val)) {
+    pr_warn("ifset: interface '%s' not found\n", clean_val);
+    kfree(val_alloc);
+    return -ENOENT;
   }
 
   mutex_lock(&g_ifset_mutex);
