@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -876,6 +877,64 @@ static int get_boot_seconds(__u64 *seconds) {
   return -errno;
 }
 
+static void rstrip(char *s) {
+  size_t n = strlen(s);
+  while (n > 0 && isspace((unsigned char) s[n - 1]))
+    s[--n] = '\0';
+}
+
+static char *lskip(char *s) {
+  while (*s && isspace((unsigned char) *s))
+    s++;
+  return s;
+}
+
+static int print_ifnames(const char *path) {
+  int    err;
+  FILE  *f   = NULL;
+  char  *buf = NULL;
+  size_t cap = 0;
+
+  f = try2_p(fopen(path, "re"), "failed to open %s: %s", path, strerrno);
+
+  {
+    errno     = 0;
+    ssize_t n = getdelim(&buf, &cap, '\0', f);
+    try2(n >= 0 ? 0 : -1, "failed to read %s: %s", path, strerrno);
+  }
+
+  rstrip(buf);
+  char *p = lskip(buf);
+
+  printf("Managed interfaces:\n");
+
+  if (!*p) {
+    // 空字符串：表示所有接口被管理
+    printf("  [all interfaces]\n\n");
+    err = 0;
+    goto err_cleanup;
+  }
+
+  // CSV 分割并逐项打印
+  char *saveptr = NULL;
+  for (char *tok = strtok_r(p, ",", &saveptr); tok; tok = strtok_r(NULL, ",", &saveptr)) {
+    tok = lskip(tok);
+    rstrip(tok);
+    if (*tok == '\0')
+      continue;
+    printf("  %s\n", tok);
+  }
+
+  printf("\n");
+  err = 0;
+
+err_cleanup:
+  if (f)
+    fclose(f);
+  free(buf);
+  return err;
+}
+
 int cmd_status(int argc, char **argv) {
   int err = 0;
 
@@ -901,6 +960,8 @@ int cmd_status(int argc, char **argv) {
   try2(get_config_map(tutuicmptunnel_fd, &cfg), _("get_config_map: %s"), strerrno);
 
   printf("%s: Role: %s\n\n", STR(PROJECT_NAME), cfg.is_server ? "Server" : "Client");
+
+  print_ifnames("/sys/module/tutuicmptunnel/parameters/ifnames");
 
   if (cfg.is_server) {
     struct tutu_user_info user_info;
