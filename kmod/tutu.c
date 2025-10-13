@@ -398,8 +398,10 @@ static int param_set_ifnames_remove(const char *val, const struct kernel_param *
     if (strcmp(tok, clean_val)) {
       if (current_p != new_ifnames)
         *current_p++ = ',';
+      if (current_p >= new_ifnames + alloc_size)
+        break;
       size_t remaining_size = (new_ifnames + alloc_size) - current_p;
-      current_p += snprintf(current_p, remaining_size, "%s", tok);
+      current_p += scnprintf(current_p, remaining_size, "%s", tok);
     }
   }
 
