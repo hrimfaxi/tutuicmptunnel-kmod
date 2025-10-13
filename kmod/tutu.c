@@ -312,8 +312,8 @@ static int param_set_ifnames_remove(const char *val, const struct kernel_param *
 out:
   kfree(p_ifnames);
   kfree(new_ifnames);
-  kfree(val_alloc);
   mutex_unlock(&g_ifset_mutex);
+  kfree(val_alloc);
   return err;
 }
 
