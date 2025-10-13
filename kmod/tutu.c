@@ -164,34 +164,64 @@ static void free_ifset(void) {
 }
 
 static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
-  int   err;
-  char *val_alloc = NULL, *clean_val = NULL;
+  int   err  = 0;
+  char *dup  = NULL;
+  char *newp = NULL;
+  char *oldp;
 
-  val_alloc = kstrdup(val, GFP_KERNEL);
-  if (!val_alloc)
-    return -ENOMEM;
+  // 允许 val 为空或仅空白，表示清空
+  if (val && *val) {
+    dup = kstrdup(val, GFP_KERNEL);
+    if (!dup)
+      return -ENOMEM;
 
-  clean_val = strstrip(val_alloc);
+    // 就地去首尾空白
+    char *clean = strstrip(dup);
+
+    if (*clean) {
+      // 再拷一份，确保 ifnames 拥有独立的 kmalloc 缓冲
+      newp = kstrdup(clean, GFP_KERNEL);
+      if (!newp) {
+        kfree(dup);
+        return -ENOMEM;
+      }
+    }
+
+    // 如果 clean 为空，表示清空：newp 维持为 NULL
+  }
+
   mutex_lock(&g_ifset_mutex);
-  err = param_set_charp(clean_val, kp); /* updates 'ifnames' */
-  if (err)
-    goto out;
+  oldp    = ifnames;
+  ifnames = newp; // newp可能为NULL
 
   err = reload_config_locked();
-out:
+  if (err) {
+    // 回滚
+    ifnames = oldp;
+    kfree(newp);
+  } else {
+    // 成功，释放旧值
+    kfree(oldp);
+  }
+
   mutex_unlock(&g_ifset_mutex);
-  kfree(val_alloc);
+
+  // 释放工作缓冲
+  kfree(dup);
   return err;
 }
 
 static int param_get_ifnames(char *buffer, const struct kernel_param *kp) {
-  int err;
+  int         n;
+  const char *p;
 
   mutex_lock(&g_ifset_mutex);
-  err = param_get_charp(buffer, kp);
+  p = ifnames ? ifnames : "";
+  // sysfs 参数读回通常以换行结尾
+  n = scnprintf(buffer, PAGE_SIZE, "%s\n", p);
   mutex_unlock(&g_ifset_mutex);
 
-  return err;
+  return n;
 }
 
 static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
