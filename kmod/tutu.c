@@ -33,6 +33,14 @@
 static char *ifnames;
 MODULE_PARM_DESC(ifnames, "Comma-separated list of interface names to allow (empty means no filtering)");
 
+static char *ifnames_add;
+static char *ifnames_remove;
+static bool  ifnames_clear;
+
+MODULE_PARM_DESC(ifnames_add, "Comma-separated list of interface names to add");
+MODULE_PARM_DESC(ifnames_remove, "Comma-separated list of interface names to remove");
+MODULE_PARM_DESC(ifnames_clear, "Set to 'true' or '1' to clear the interface list");
+
 static u32 dev_mode = 0400;
 module_param(dev_mode, int, 0);
 MODULE_PARM_DESC(dev_mode, "default device right, default: 0700");
@@ -40,12 +48,13 @@ MODULE_PARM_DESC(dev_mode, "default device right, default: 0700");
 /* Config structure protected by RCU: dynamic bitmap of allowed ifindex */
 struct ifset {
   struct rcu_head rcu;
+  bool            allow_all;                 /* 允许所有接口 */
   unsigned int    max_ifindex;               /* number of bits in bitmap */
   DECLARE_FLEX_ARRAY(unsigned long, bitmap); /* flexible array */
 };
 
 static struct ifset __rcu *g_ifset;
-static DEFINE_MUTEX(g_ifset_mutex);
+static DEFINE_MUTEX(g_ifset_mutex); // 保护ifnames和g_ifset
 
 static unsigned int get_max_ifindex(void) {
   struct net_device *dev;
@@ -86,11 +95,13 @@ static int build_ifset_from_names(const char *csv, struct ifset **out_new) {
 
   if (!csv || !*csv) {
     /* Empty list => allow all (bitmap left as zero, special-cased later) */
-    *out_new = w;
+    w->allow_all = true;
+    *out_new     = w;
     return 0;
   }
 
-  dup = kstrdup(csv, GFP_KERNEL);
+  w->allow_all = false;
+  dup          = kstrdup(csv, GFP_KERNEL);
   if (!dup) {
     kfree(w);
     return -ENOMEM;
@@ -118,24 +129,14 @@ static int build_ifset_from_names(const char *csv, struct ifset **out_new) {
   return 0;
 }
 
-static struct ifset *set_new_ifset(struct ifset *newcfg) {
-  struct ifset *oldcfg;
-
-  mutex_lock(&g_ifset_mutex);
-  oldcfg = rcu_replace_pointer(g_ifset, newcfg, lockdep_is_held(&g_ifset_mutex));
-  mutex_unlock(&g_ifset_mutex);
-
-  return oldcfg;
-}
-
-static int reload_config_from_param(void) {
+static int reload_config_locked(void) {
   struct ifset *newcfg;
   struct ifset *oldcfg;
   int           err = build_ifset_from_names(ifnames, &newcfg);
   if (err)
     return err;
 
-  oldcfg = set_new_ifset(newcfg);
+  oldcfg = rcu_replace_pointer(g_ifset, newcfg, lockdep_is_held(&g_ifset_mutex));
   kfree_rcu(oldcfg, rcu);
 
   pr_debug("ifset: config reloaded (ifnames=\"%s\")\n", ifnames ? ifnames : "");
@@ -145,19 +146,182 @@ static int reload_config_from_param(void) {
 static void free_ifset(void) {
   struct ifset *oldcfg;
 
-  oldcfg = set_new_ifset(NULL);
+  mutex_lock(&g_ifset_mutex);
+  oldcfg = rcu_replace_pointer(g_ifset, NULL, lockdep_is_held(&g_ifset_mutex));
+  kfree(ifnames);
+  ifnames = NULL;
+  mutex_unlock(&g_ifset_mutex);
+
   kfree_rcu(oldcfg, rcu);
 }
 
 static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
-  int err = param_set_charp(val, kp); /* updates 'ifnames' */
+  int err;
+
+  mutex_lock(&g_ifset_mutex);
+  err = param_set_charp(val, kp); /* updates 'ifnames' */
   if (err)
-    return err;
-  return reload_config_from_param();
+    goto out;
+
+  err = reload_config_locked();
+out:
+  mutex_unlock(&g_ifset_mutex);
+  return err;
 }
 
 static int param_get_ifnames(char *buffer, const struct kernel_param *kp) {
-  return param_get_charp(buffer, kp);
+  int err;
+
+  mutex_lock(&g_ifset_mutex);
+  err = param_get_charp(buffer, kp);
+  mutex_unlock(&g_ifset_mutex);
+
+  return err;
+}
+
+static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
+  char  *new_ifnames;
+  char  *val_alloc = NULL, *clean_val = NULL;
+  size_t old_len, add_len;
+  int    err = 0;
+
+  if (!val || !*val)
+    return 0;
+
+  /* 规则：不允许输入中包含逗号 */
+  if (strchr(val, ',')) {
+    pr_warn("ifset: 'add' parameter only accepts a single interface name.\n");
+    return -EINVAL;
+  }
+
+  val_alloc = kstrdup(val, GFP_KERNEL);
+  if (!val_alloc)
+    return -ENOMEM;
+
+  clean_val = strstrip(val_alloc);
+  if (!*clean_val) {
+    kfree(val_alloc);
+    return 0;
+  }
+
+  mutex_lock(&g_ifset_mutex);
+
+  old_len = ifnames ? strlen(ifnames) : 0;
+
+  if (old_len) {
+    /* 拼接 "old,new" */
+    add_len     = strlen(clean_val);
+    new_ifnames = kmalloc(old_len + 1 + add_len + 1, GFP_KERNEL);
+    if (new_ifnames)
+      snprintf(new_ifnames, old_len + 1 + add_len + 1, "%s,%s", ifnames, clean_val);
+  } else {
+    /* 如果列表为空，直接复制输入即可 */
+    new_ifnames = kstrdup(clean_val, GFP_KERNEL);
+  }
+
+  if (!new_ifnames) {
+    err = -ENOMEM;
+    goto out;
+  }
+
+  kfree(ifnames);
+  ifnames = new_ifnames;
+  err     = reload_config_locked();
+
+out:
+  mutex_unlock(&g_ifset_mutex);
+  kfree(val_alloc);
+  return err;
+}
+
+static int param_set_ifnames_remove(const char *val, const struct kernel_param *kp) {
+  char  *new_ifnames = NULL;
+  char  *p_ifnames   = NULL;
+  char  *current_p   = NULL;
+  char  *tok         = NULL;
+  char  *val_alloc   = NULL;
+  char  *clean_val   = NULL;
+  int    err;
+  size_t alloc_size;
+
+  if (!val || !*val)
+    return 0;
+
+  /* 规则：不允许输入中包含逗号 */
+  if (strchr(val, ',')) {
+    pr_warn("ifset: 'remove' parameter only accepts a single interface name.\n");
+    return -EINVAL;
+  }
+
+  val_alloc = kstrdup(val, GFP_KERNEL);
+  if (!val_alloc)
+    return -ENOMEM;
+
+  clean_val = strstrip(val_alloc);
+  if (!*clean_val) {
+    kfree(val_alloc);
+    return 0;
+  }
+
+  mutex_lock(&g_ifset_mutex);
+  err = 0;
+  if (!ifnames || !*ifnames)
+    goto out;
+
+  alloc_size  = strlen(ifnames) + 1;
+  new_ifnames = kzalloc(alloc_size, GFP_KERNEL);
+  if (!new_ifnames) {
+    err = -ENOMEM;
+    goto out;
+  }
+
+  p_ifnames = kstrdup(ifnames, GFP_KERNEL);
+  if (!p_ifnames) {
+    err = -ENOMEM;
+    goto out;
+  }
+
+  /* 核心逻辑：遍历列表，跳过匹配的元素，复制其他所有元素 */
+  current_p = new_ifnames;
+  while ((tok = strsep(&p_ifnames, ",")) != NULL) {
+    if (!*tok)
+      continue;
+
+    /* 如果当前 token 不是要删除的那个，就把它加到新字串中 */
+    if (strcmp(tok, clean_val)) {
+      if (current_p != new_ifnames)
+        *current_p++ = ',';
+      size_t remaining_size = (new_ifnames + alloc_size) - current_p;
+      current_p += snprintf(current_p, remaining_size, "%s", tok);
+    }
+  }
+
+  /* 更新全域状态 */
+  kfree(ifnames);
+  ifnames     = new_ifnames;
+  new_ifnames = NULL; /* 所有权已转移 */
+  err         = reload_config_locked();
+
+out:
+  kfree(p_ifnames);
+  kfree(new_ifnames);
+  kfree(val_alloc);
+  mutex_unlock(&g_ifset_mutex);
+  return err;
+}
+
+static int param_set_ifnames_clear(const char *val, const struct kernel_param *kp) {
+  bool clear;
+  int  err = 0;
+  if (kstrtobool(val, &clear) || !clear)
+    return 0;
+
+  mutex_lock(&g_ifset_mutex);
+  kfree(ifnames);
+  ifnames = NULL;
+  err     = reload_config_locked();
+  mutex_unlock(&g_ifset_mutex);
+  return err;
 }
 
 static const struct kernel_param_ops ifnames_ops = {
@@ -168,22 +332,43 @@ static const struct kernel_param_ops ifnames_ops = {
 /* Bind our custom ops to the 'ifnames' parameter */
 module_param_cb(ifnames, &ifnames_ops, &ifnames, 0644);
 
+static const struct kernel_param_ops ifnames_add_ops = {
+  .set = param_set_ifnames_add,
+  .get = NULL,
+};
+module_param_cb(ifnames_add, &ifnames_add_ops, &ifnames_add, 0200); /* write-only */
+
+static const struct kernel_param_ops ifnames_remove_ops = {
+  .set = param_set_ifnames_remove,
+  .get = NULL,
+};
+module_param_cb(ifnames_remove, &ifnames_remove_ops, &ifnames_remove, 0200);
+
+static const struct kernel_param_ops ifnames_clear_ops = {
+  .set = param_set_ifnames_clear,
+  .get = NULL,
+};
+module_param_cb(ifnames_clear, &ifnames_clear_ops, &ifnames_clear, 0200);
+
 /* Decide if interface is allowed:
  * - if ifnames empty/NULL: allow all
  * - else: allow only if bit set
  * No explicit rcu_read_lock: single deref + read-only access, safe with kfree_rcu lifecycle.
  */
 static bool iface_allowed(int ifindex) {
+  bool allowed = true;
+
   const struct ifset *cfg = rcu_dereference(g_ifset);
 
-  /* No config yet or empty param => allow all */
-  if (!cfg || !ifnames || !*ifnames)
-    return true;
+  if (cfg) {
+    if (cfg->allow_all) {
+      allowed = true;
+    } else {
+      allowed = (ifindex > 0 && ifindex <= cfg->max_ifindex && test_bit(ifindex, cfg->bitmap));
+    }
+  }
 
-  if (ifindex > 0 && ifindex <= cfg->max_ifindex)
-    return test_bit(ifindex, cfg->bitmap);
-
-  return false;
+  return allowed;
 }
 
 struct tutu_config_rcu {
@@ -1472,7 +1657,9 @@ static int __init tutuicmptunnel_module_init(void) {
     return -EINVAL;
   }
 
-  err = reload_config_from_param();
+  mutex_lock(&g_ifset_mutex);
+  err = reload_config_locked();
+  mutex_unlock(&g_ifset_mutex);
   if (err) {
     pr_err("ifset config failed: %d\n", err);
     return err;
