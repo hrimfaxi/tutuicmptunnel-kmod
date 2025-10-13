@@ -8,6 +8,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/kernel.h>
+#include <linux/lockdep.h>
 #include <linux/module.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
@@ -239,7 +240,7 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
     }
 
     if (found) {
-      /* 介面已存在，视为空操作成功，直接退出 */
+      /* 接口已存在，视为空操作成功，直接退出 */
       err = 0;
       goto out;
     }
@@ -396,11 +397,11 @@ module_param_cb(ifnames_clear, &ifnames_clear_ops, &ifnames_clear, 0200);
  * No explicit rcu_read_lock: single deref + read-only access, safe with kfree_rcu lifecycle.
  */
 static bool iface_allowed(int ifindex) {
+  WARN_ON_ONCE(!rcu_read_lock_held());
+
   bool allowed = true;
 
   const struct ifset *cfg = rcu_dereference(g_ifset);
-
-  WARN_ON_ONCE(!rcu_read_lock_held());
 
   if (cfg) {
     if (cfg->allow_all) {
