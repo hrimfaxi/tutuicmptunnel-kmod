@@ -163,8 +163,8 @@ static void free_ifset(void) {
 }
 
 static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
-  int err;
-  char  *val_alloc = NULL, *clean_val = NULL;
+  int   err;
+  char *val_alloc = NULL, *clean_val = NULL;
 
   val_alloc = kstrdup(val, GFP_KERNEL);
   if (!val_alloc)
