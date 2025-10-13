@@ -393,6 +393,8 @@ static bool iface_allowed(int ifindex) {
 
   const struct ifset *cfg = rcu_dereference(g_ifset);
 
+  WARN_ON_ONCE(!rcu_read_lock_held());
+
   if (cfg) {
     if (cfg->allow_all) {
       allowed = true;
