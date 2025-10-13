@@ -314,7 +314,7 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
     add_len     = strlen(clean_val);
     new_ifnames = kmalloc(old_len + 1 + add_len + 1, GFP_KERNEL);
     if (new_ifnames)
-      snprintf(new_ifnames, old_len + 1 + add_len + 1, "%s,%s", ifnames, clean_val);
+      scnprintf(new_ifnames, old_len + 1 + add_len + 1, "%s,%s", ifnames, clean_val);
   } else {
     /* 如果列表为空，直接复制输入即可 */
     new_ifnames = kstrdup(clean_val, GFP_KERNEL);
