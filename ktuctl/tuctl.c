@@ -40,6 +40,8 @@ typedef struct {
 } subcommand_t;
 
 // 子命令处理函数声明
+int cmd_load(int argc, char **argv);
+int cmd_unload(int argc, char **argv);
 int cmd_server(int argc, char **argv);
 int cmd_client(int argc, char **argv);
 int cmd_client_add(int argc, char **argv);
@@ -162,6 +164,113 @@ static int string2uid(const char *string, uint8_t *uid) {
   }
 
   return parse_uid(string, uid);
+}
+
+struct iface_node {
+  char             name[IFNAMSIZ];
+  struct list_head head;
+};
+
+static int add_iface(struct list_head *iface_list_head, const char *iface) {
+  struct iface_node *new_iface = (typeof(new_iface)) malloc(sizeof(*new_iface));
+
+  if (!new_iface)
+    return -ENOMEM;
+
+  strncpy(new_iface->name, iface, sizeof(new_iface->name));
+  new_iface->name[sizeof(new_iface->name) - 1] = '\0';
+  list_add_tail(&new_iface->head, iface_list_head);
+  return 0;
+}
+
+static int write_to_sysfs(const char *sysfs_name, const char *value) {
+  int     fd;
+  ssize_t len, written;
+
+  fd = open(sysfs_name, O_WRONLY);
+  if (fd < 0)
+    return -errno;
+
+  len     = strlen(value);
+  written = write(fd, value, len);
+  close(fd);
+
+  if (written < 0)
+    return -errno;
+
+  if (written != len)
+    return -EIO; /* 未写全 */
+
+  return 0;
+}
+
+static void print_iface_usage(const char *prog, const char *action_word) {
+  fprintf(stderr,
+          "Usage: %s %s [OPTIONS] iface IFACE [IFACE...]\n\n"
+          "  %s a network interface %s " STR(PROJECT_NAME) ".\n\n"
+                                                           "Arguments:\n"
+                                                           "  %-22s One or more network interface names (e.g., eth0, ppp0)\n",
+          prog, action_word, strcmp(action_word, "load") == 0 ? "Add" : "Remove",
+          strcmp(action_word, "load") == 0 ? "to" : "from", "IFACE [IFACE...]");
+}
+
+static int handle_iface_op(int argc, char **argv, const char *sysfs_path, const char *action_word, const char *action_desc) {
+  LIST_HEAD(iface_list_head);
+  struct iface_node *node, *tmp_node;
+  int                err = -EINVAL;
+
+  if (help)
+    goto usage;
+
+  for (int i = 1; i < argc; ++i) {
+    const char *tok = argv[i];
+
+    if (strcasecmp(tok, "iface") == 0) {
+      if (i + 1 >= argc) {
+        log_error("\"iface\" keyword needs an argument.");
+        goto usage;
+      }
+      const char *ifname = argv[++i];
+      try2(add_iface(&iface_list_head, ifname), "add_iface: %s", strret);
+    } else if (is_help_kw(tok)) {
+      goto usage;
+    } else {
+      log_error("unknown keyword \"%s\"", tok);
+      goto usage;
+    }
+  }
+
+  if (list_empty(&iface_list_head)) {
+    log_error("At least one interface name must be specified with \"iface\".");
+    goto usage;
+  }
+
+  list_for_each_entry(node, &iface_list_head, head) {
+    log_info("%s TC for interface: %s", action_desc, node->name);
+    try2(write_to_sysfs(sysfs_path, node->name), _("failed to write to sysfs: %s"), strret);
+  }
+
+  err = 0;
+
+err_cleanup:
+  list_for_each_entry_safe(node, tmp_node, &iface_list_head, head) {
+    list_del(&node->head);
+    free(node);
+  }
+  return err;
+
+usage:
+  print_iface_usage(STR(PROG_NAME), action_word);
+  err = -EINVAL;
+  goto err_cleanup;
+}
+
+int cmd_load(int argc, char **argv) {
+  return handle_iface_op(argc, argv, "/sys/module/tutuicmptunnel/parameters/ifnames_add", "load", "Configuring");
+}
+
+int cmd_unload(int argc, char **argv) {
+  return handle_iface_op(argc, argv, "/sys/module/tutuicmptunnel/parameters/ifnames_remove", "unload", "Deconfiguring");
 }
 
 #define CMD_SERVER_SUMMARY "Set up " STR(PROJECT_NAME) " in server mode"
@@ -1224,6 +1333,8 @@ err_cleanup:
 
 // clang-format off
 static subcommand_t subcommands[] = {
+  { "load", cmd_load, "Add network interface to " STR(PROJECT_NAME), },
+  { "unload", cmd_unload, "Remove network interface from " STR(PROJECT_NAME), },
   { "server", cmd_server, CMD_SERVER_SUMMARY, },
   { "client", cmd_client, CMD_CLIENT_SUMMARY, },
   { "client-add", cmd_client_add, CMD_CLIENT_ADD_SUMMARY, },
