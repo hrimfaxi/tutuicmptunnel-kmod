@@ -337,7 +337,7 @@ out:
 }
 
 static int param_set_ifnames_remove(const char *val, const struct kernel_param *kp) {
-  char  *new_ifnames = NULL;
+  char  *new_ifnames = NULL, *end;
   char  *p_ifnames   = NULL;
   char  *current_p   = NULL;
   char  *tok         = NULL;
@@ -389,21 +389,23 @@ static int param_set_ifnames_remove(const char *val, const struct kernel_param *
   }
 
   /* 核心逻辑：遍历列表，跳过匹配的元素，复制其他所有元素 */
+  end       = new_ifnames + alloc_size;
   current_p = new_ifnames;
+
   while ((tok = strsep(&p_ifnames, ",")) != NULL) {
-    if (!*tok)
+    if (!*tok || end - current_p <= 1) /* 最少留一个空字符 */
       continue;
 
     /* 如果当前 token 不是要删除的那个，就把它加到新字串中 */
     if (strcmp(tok, clean_val)) {
       if (current_p != new_ifnames)
         *current_p++ = ',';
-      if (current_p >= new_ifnames + alloc_size)
-        break;
-      size_t remaining_size = (new_ifnames + alloc_size) - current_p;
-      current_p += scnprintf(current_p, remaining_size, "%s", tok);
+      current_p += scnprintf(current_p, end - current_p, "%s", tok);
     }
   }
+
+  // 保底写入结尾字符，防止边界或空串
+  end[-1] = '\0';
 
   /* 更新全域状态 */
   kfree(ifnames);
