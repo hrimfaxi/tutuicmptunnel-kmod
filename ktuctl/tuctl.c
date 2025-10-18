@@ -246,7 +246,7 @@ static int handle_iface_op(int argc, char **argv, const char *sysfs_path, const 
   }
 
   list_for_each_entry(node, &iface_list_head, head) {
-    log_info("%s TC for interface: %s", action_desc, node->name);
+    log_info("%s for interface: %s", action_desc, node->name);
     try2(write_to_sysfs(sysfs_path, node->name), _("failed to write to sysfs: %s"), strret);
   }
 
