@@ -245,10 +245,8 @@ static bool net_has_device(const char *dev_name) {
 }
 
 static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
-  char  *new_ifnames;
-  char  *val_alloc = NULL, *clean_val = NULL, *tmp_ifnames = NULL;
-  size_t old_len, add_len;
-  int    err = 0;
+  char *val_alloc = NULL, *clean_val = NULL, *tmp_ifnames = NULL, *new_ifnames = NULL;
+  int   err = 0;
 
   if (!val || !*val)
     return 0;
@@ -270,69 +268,62 @@ static int param_set_ifnames_add(const char *val, const struct kernel_param *kp)
 
   clean_val = strstrip(val_alloc);
   if (!*clean_val) {
-    kfree(val_alloc);
-    return 0;
+    err = 0;
+    goto out_free_val;
   }
 
   if (!net_has_device(clean_val)) {
     pr_warn("ifset: interface '%s' not found\n", clean_val);
-    kfree(val_alloc);
-    return -ENOENT;
+    err = -ENOENT;
+    goto out_free_val;
   }
 
   mutex_lock(&g_ifset_mutex);
 
-  if (ifnames && *ifnames) {
-    char *p, *tok;
-    bool  found = false;
+  do {
+    if (ifnames && *ifnames) {
+      char *p, *tok;
+      bool  found = false;
 
-    tmp_ifnames = kstrdup(ifnames, GFP_KERNEL);
-    if (!tmp_ifnames) {
-      err = -ENOMEM;
-      goto out;
-    }
+      tmp_ifnames = kstrdup(ifnames, GFP_KERNEL);
+      if (!tmp_ifnames) {
+        err = -ENOMEM;
+        break;
+      }
 
-    p = tmp_ifnames;
-    while ((tok = strsep(&p, ",")) != NULL) {
-      if (!strcmp(tok, clean_val)) {
-        found = true;
+      p = tmp_ifnames;
+      while ((tok = strsep(&p, ",")) != NULL) {
+        if (!strcmp(tok, clean_val)) {
+          found = true;
+          break;
+        }
+      }
+
+      if (found) {
+        /* 接口已存在，视为空操作成功，直接退出 */
+        err = 0;
         break;
       }
     }
 
-    if (found) {
-      /* 接口已存在，视为空操作成功，直接退出 */
-      err = 0;
-      goto out;
+    new_ifnames = ifnames && *ifnames ? kasprintf(GFP_KERNEL, "%s,%s", ifnames, clean_val) : kstrdup(clean_val, GFP_KERNEL);
+    if (!new_ifnames) {
+      err = -ENOMEM;
+      break;
     }
-  }
 
-  old_len = ifnames ? strlen(ifnames) : 0;
+    kfree(ifnames);
+    ifnames     = new_ifnames;
+    new_ifnames = NULL; // 所有权已转移
+    err         = reload_config_locked();
+  } while (0);
 
-  if (old_len) {
-    /* 拼接 "old,new" */
-    add_len     = strlen(clean_val);
-    new_ifnames = kmalloc(old_len + 1 + add_len + 1, GFP_KERNEL);
-    if (new_ifnames)
-      scnprintf(new_ifnames, old_len + 1 + add_len + 1, "%s,%s", ifnames, clean_val);
-  } else {
-    /* 如果列表为空，直接复制输入即可 */
-    new_ifnames = kstrdup(clean_val, GFP_KERNEL);
-  }
-
-  if (!new_ifnames) {
-    err = -ENOMEM;
-    goto out;
-  }
-
-  kfree(ifnames);
-  ifnames = new_ifnames;
-  err     = reload_config_locked();
-
-out:
-  kfree(tmp_ifnames);
   mutex_unlock(&g_ifset_mutex);
+
+out_free_val:
+  kfree(tmp_ifnames);
   kfree(val_alloc);
+  kfree(new_ifnames);
   return err;
 }
 
