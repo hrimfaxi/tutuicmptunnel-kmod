@@ -328,7 +328,7 @@ out_free_val:
 }
 
 static int param_set_ifnames_remove(const char *val, const struct kernel_param *kp) {
-  char  *new_ifnames = NULL, *end;
+  char  *new_ifnames = NULL;
   char  *p_ifnames   = NULL;
   char  *current_p   = NULL;
   char  *tok         = NULL;
@@ -357,57 +357,60 @@ static int param_set_ifnames_remove(const char *val, const struct kernel_param *
 
   clean_val = strstrip(val_alloc);
   if (!*clean_val) {
-    kfree(val_alloc);
-    return 0;
+    err = 0;
+    goto out_free_val;
   }
 
   mutex_lock(&g_ifset_mutex);
-  err = 0;
-  if (!ifnames || !*ifnames)
-    goto out;
 
-  alloc_size  = strlen(ifnames) + 1;
-  new_ifnames = kzalloc(alloc_size, GFP_KERNEL);
-  if (!new_ifnames) {
-    err = -ENOMEM;
-    goto out;
-  }
+  do {
+    err = 0;
+    if (!ifnames || !*ifnames)
+      break;
 
-  p_ifnames = kstrdup(ifnames, GFP_KERNEL);
-  if (!p_ifnames) {
-    err = -ENOMEM;
-    goto out;
-  }
-
-  /* 核心逻辑：遍历列表，跳过匹配的元素，复制其他所有元素 */
-  end       = new_ifnames + alloc_size;
-  current_p = new_ifnames;
-
-  while ((tok = strsep(&p_ifnames, ",")) != NULL) {
-    if (!*tok || end - current_p <= 1) /* 最少留一个空字符 */
-      continue;
-
-    /* 如果当前 token 不是要删除的那个，就把它加到新字串中 */
-    if (strcmp(tok, clean_val)) {
-      if (current_p != new_ifnames)
-        *current_p++ = ',';
-      current_p += scnprintf(current_p, end - current_p, "%s", tok);
+    alloc_size  = strlen(ifnames) + 1;
+    new_ifnames = kzalloc(alloc_size, GFP_KERNEL);
+    if (!new_ifnames) {
+      err = -ENOMEM;
+      break;
     }
-  }
 
-  // 保底写入结尾字符，防止边界或空串
-  end[-1] = '\0';
+    p_ifnames = kstrdup(ifnames, GFP_KERNEL);
+    if (!p_ifnames) {
+      err = -ENOMEM;
+      break;
+    }
 
-  /* 更新全域状态 */
-  kfree(ifnames);
-  ifnames     = new_ifnames;
-  new_ifnames = NULL; /* 所有权已转移 */
-  err         = reload_config_locked();
+    /* 核心逻辑：遍历列表，跳过匹配的元素，复制其他所有元素 */
+    char *end = new_ifnames + alloc_size;
+    current_p = new_ifnames;
 
-out:
+    while ((tok = strsep(&p_ifnames, ",")) != NULL) {
+      if (!*tok || end - current_p <= 1) /* 最少留一个空字符 */
+        continue;
+
+      /* 如果当前 token 不是要删除的那个，就把它加到新字串中 */
+      if (strcmp(tok, clean_val)) {
+        if (current_p != new_ifnames)
+          *current_p++ = ',';
+        current_p += scnprintf(current_p, end - current_p, "%s", tok);
+      }
+    }
+
+    // 保底写入结尾字符，防止边界或空串
+    end[-1] = '\0';
+
+    /* 更新全域状态 */
+    kfree(ifnames);
+    ifnames     = new_ifnames;
+    new_ifnames = NULL; /* 所有权已转移 */
+    err         = reload_config_locked();
+  } while (0);
+  mutex_unlock(&g_ifset_mutex);
+
+out_free_val:
   kfree(p_ifnames);
   kfree(new_ifnames);
-  mutex_unlock(&g_ifset_mutex);
   kfree(val_alloc);
   return err;
 }
