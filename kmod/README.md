@@ -1,6 +1,7 @@
 # tutuicmptunnel.ko 说明
 
-`tutuicmptunnel.ko` 是 `tutuicmptunnel-kmod` 的内核核心模块。用户态工具 `ktuctl` 通过字符设备 `/dev/tutuicmptunnel` 与该模块交互，用于创建、更新、查看和删除隧道配置。
+`tutuicmptunnel.ko` 是 `tutuicmptunnel-kmod` 的内核核心模块。
+用户态工具 `ktuctl` 通过字符设备 `/dev/tutuicmptunnel` 与该模块交互，用于创建、更新、查看和删除隧道配置。
 
 ## 模块参数
 
@@ -24,9 +25,18 @@ modprobe tutuicmptunnel force_sw_checksum=1 dev_mode=0777 ifnames=wlan0,pppoe-wa
   - 提示：若需允许任意用户使用 `ktuctl`，可设为 0777，但存在明显安全风险，请谨慎评估。
 
 - ifnames
-  - 说明：限定 `tutuicmptunnel` 生效的网络接口列表，使用逗号分隔多个接口名。
+  - 说明：限定 `tutuicmptunnel-kmod` 生效的网络接口列表，使用逗号分隔多个接口名。
+  如果是空字符串, 表示不限制,`tutuicmptunnel-kmod`会作用于所有接口上
   - 示例：wlan0,pppoe-wan,wan
-  - 默认值：空（不限制，作用于所有接口）
+  - 默认值：空
+
+- ifnames_add
+  - 说明：添加一个接口到`ifnames`列表中.列表名必须在系统中存在
+  - 示例：wlan0
+
+- ifnames_remove
+  - 说明：从`ifnames`中删除一个接口
+  - 示例：wlan0
 
 - egress_peer_map_size
   - 说明: egress peer map大小，必须为2的幕次，不得小于256
@@ -46,12 +56,14 @@ modprobe tutuicmptunnel force_sw_checksum=1 dev_mode=0777 ifnames=wlan0,pppoe-wa
 
 - 限定作用接口：
   - echo "wlan0,pppoe-wan,wan" > /sys/module/tutuicmptunnel/parameters/ifnames
+  - echo "wlan0" > /sys/module/tutuicmptunnel/parameters/ifnames_add # 添加`wlan0`接口到`ifnames`
+  - echo "wlan0" > /sys/module/tutuicmptunnel/parameters/ifnames_remove # 从`ifnames`中删除`wlan0`接口
 
 - 启用软件校验和：
   - echo 1 > /sys/module/tutuicmptunnel/parameters/force_sw_checksum
 
 ## 备注与建议
 
-- 接口名称需与系统中实际存在的 net_device 保持一致；重命名或删除接口后请相应更新 ifnames。
-- 在云/虚拟化场景遇到 ICMP 封装包校验和异常时，优先尝试开启 force_sw_checksum 进行验证。
-- 放宽 dev_mode 权限前，请确认多用户场景下的访问控制与审计需求，避免滥用造成隧道配置被非授权篡改。
+- 接口名称需与系统中实际存在的网络接口保持一致；重命名或删除接口后请相应更新 ifnames。
+- 在云/虚拟化场景遇到 `ICMP` 封装包校验和异常时，优先尝试开启 `force_sw_checksum` 进行验证。
+- 放宽 `dev_mode` 权限前，请确认多用户场景下的访问控制与审计需求，避免滥用造成隧道配置被非授权篡改。
