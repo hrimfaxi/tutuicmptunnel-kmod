@@ -1753,6 +1753,32 @@ static unsigned int session_map_size = 16384;
 module_param(session_map_size, uint, 0400);
 MODULE_PARM_DESC(session_map_size, "Size for the session map, must be power of 2");
 
+static void reload_work_func(struct work_struct *work) {
+  int err;
+
+  mutex_lock(&g_ifset_mutex);
+  err = reload_config_locked();
+  mutex_unlock(&g_ifset_mutex);
+
+  if (err)
+    pr_err("reload_config_locked() failed: %d\n", err);
+}
+
+static DECLARE_DELAYED_WORK(g_reload_work, reload_work_func);
+
+static int netdev_event_handler(struct notifier_block *nb, unsigned long event, void *ptr) {
+  if (event != NETDEV_REGISTER && event != NETDEV_UNREGISTER)
+    return NOTIFY_DONE;
+
+  pr_info("reloading interfaces...\n");
+  schedule_delayed_work(&g_reload_work, msecs_to_jiffies(100));
+  return NOTIFY_DONE;
+}
+
+static struct notifier_block g_netdev_notifier = {
+  .notifier_call = netdev_event_handler,
+};
+
 static int __init tutuicmptunnel_module_init(void) {
   int                     err;
   struct tutu_config_rcu *cfg_init;
@@ -1772,11 +1798,15 @@ static int __init tutuicmptunnel_module_init(void) {
     return err;
   }
 
+  err = register_netdevice_notifier(&g_netdev_notifier);
+  if (err)
+    goto err_free_ifset;
+
   egress_peer_map = tutu_map_alloc(sizeof(struct egress_peer_key), sizeof(struct egress_peer_value), egress_peer_map_size);
   if (IS_ERR(egress_peer_map)) {
     err = PTR_ERR(egress_peer_map);
     pr_err("failed to create egress peer map: %d\n", err);
-    goto err_free_ifset;
+    goto err_unregister_netdevice_notifier;
   }
 
   ingress_peer_map = tutu_map_alloc(sizeof(struct ingress_peer_key), sizeof(struct ingress_peer_value), ingress_peer_map_size);
@@ -1885,6 +1915,9 @@ err_free_ingress_peer_map:
   tutu_map_free(ingress_peer_map);
 err_free_egress_peer_map:
   tutu_map_free(egress_peer_map);
+err_unregister_netdevice_notifier:
+  unregister_netdevice_notifier(&g_netdev_notifier);
+  cancel_delayed_work_sync(&g_reload_work);
 err_free_ifset:
   free_ifset();
 
@@ -1910,6 +1943,8 @@ static void __exit tutuicmptunnel_module_exit(void) {
   tutu_map_free(ingress_peer_map);
   tutu_map_free(egress_peer_map);
 
+  unregister_netdevice_notifier(&g_netdev_notifier);
+  cancel_delayed_work_sync(&g_reload_work);
   free_ifset();
   pr_info("tutuicmptunnel: device removed\n");
 }
