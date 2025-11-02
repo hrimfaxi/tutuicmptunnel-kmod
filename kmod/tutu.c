@@ -1781,7 +1781,7 @@ static int netdev_event_handler(struct notifier_block *nb, unsigned long event, 
     return NOTIFY_DONE;
   }
 
-  pr_info("reloading interfaces: event=%s dev=%s\n", ev, dev ? dev->name : "unknown");
+  pr_debug("reloading interface: event=%s dev=%s\n", ev, dev ? dev->name : "unknown");
   schedule_delayed_work(&g_reload_work, msecs_to_jiffies(100));
   return NOTIFY_DONE;
 }
