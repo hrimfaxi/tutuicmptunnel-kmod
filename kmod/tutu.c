@@ -1767,10 +1767,21 @@ static void reload_work_func(struct work_struct *work) {
 static DECLARE_DELAYED_WORK(g_reload_work, reload_work_func);
 
 static int netdev_event_handler(struct notifier_block *nb, unsigned long event, void *ptr) {
-  if (event != NETDEV_REGISTER && event != NETDEV_UNREGISTER)
-    return NOTIFY_DONE;
+  struct net_device *dev = netdev_notifier_info_to_dev(ptr);
+  const char        *ev  = NULL;
 
-  pr_info("reloading interfaces...\n");
+  switch (event) {
+  case NETDEV_REGISTER:
+    ev = "REGISTER";
+    break;
+  case NETDEV_UNREGISTER:
+    ev = "UNREGISTER";
+    break;
+  default:
+    return NOTIFY_DONE;
+  }
+
+  pr_info("reloading interfaces: event=%s dev=%s\n", ev, dev ? dev->name : "unknown");
   schedule_delayed_work(&g_reload_work, msecs_to_jiffies(100));
   return NOTIFY_DONE;
 }
