@@ -1798,15 +1798,11 @@ static int __init tutuicmptunnel_module_init(void) {
     return err;
   }
 
-  err = register_netdevice_notifier(&g_netdev_notifier);
-  if (err)
-    goto err_free_ifset;
-
   egress_peer_map = tutu_map_alloc(sizeof(struct egress_peer_key), sizeof(struct egress_peer_value), egress_peer_map_size);
   if (IS_ERR(egress_peer_map)) {
     err = PTR_ERR(egress_peer_map);
     pr_err("failed to create egress peer map: %d\n", err);
-    goto err_unregister_netdevice_notifier;
+    goto err_free_ifset;
   }
 
   ingress_peer_map = tutu_map_alloc(sizeof(struct ingress_peer_key), sizeof(struct ingress_peer_value), ingress_peer_map_size);
@@ -1889,10 +1885,16 @@ static int __init tutuicmptunnel_module_init(void) {
     goto err_class_destroy;
   }
 
+  err = register_netdevice_notifier(&g_netdev_notifier);
+  if (err)
+    goto err_device_destroy;
+
   tutu_gc_start(1);
   pr_info("device ready at /dev/%s (major=%d minor=%d)\n", DEV_NAME, MAJOR(tutu_devno), MINOR(tutu_devno));
   return 0;
 
+err_device_destroy:
+  device_destroy(tutu_class, tutu_devno);
 err_class_destroy:
   class_destroy(tutu_class);
   tutu_class = NULL;
@@ -1915,9 +1917,6 @@ err_free_ingress_peer_map:
   tutu_map_free(ingress_peer_map);
 err_free_egress_peer_map:
   tutu_map_free(egress_peer_map);
-err_unregister_netdevice_notifier:
-  unregister_netdevice_notifier(&g_netdev_notifier);
-  cancel_delayed_work_sync(&g_reload_work);
 err_free_ifset:
   free_ifset();
 
@@ -1928,6 +1927,8 @@ static void __exit tutuicmptunnel_module_exit(void) {
   struct tutu_config_rcu *old_cfg;
 
   tutu_gc_stop();
+  unregister_netdevice_notifier(&g_netdev_notifier);
+  cancel_delayed_work_sync(&g_reload_work);
   device_destroy(tutu_class, tutu_devno);
   class_destroy(tutu_class);
   cdev_del(&tutu_cdev);
@@ -1943,8 +1944,6 @@ static void __exit tutuicmptunnel_module_exit(void) {
   tutu_map_free(ingress_peer_map);
   tutu_map_free(egress_peer_map);
 
-  unregister_netdevice_notifier(&g_netdev_notifier);
-  cancel_delayed_work_sync(&g_reload_work);
   free_ifset();
   pr_info("tutuicmptunnel: device removed\n");
 }
