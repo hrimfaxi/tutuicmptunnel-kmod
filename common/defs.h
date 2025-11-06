@@ -1,29 +1,6 @@
 #pragma once
 
-#ifdef __BPF_USE_BTF__
-#if defined(__KERNEL__) || defined(__BPF__)
-#include "vmlinux.h"
-#else
-#include <stdint.h>
-#ifndef __u8
-typedef uint8_t __u8;
-#endif
-#ifndef __u16
-typedef uint16_t __u16;
-#endif
-#ifndef __u32
-typedef uint32_t __u32;
-#endif
-#ifndef __be16
-typedef uint16_t __be16;
-#endif
-#ifndef __be32
-typedef uint32_t __be32;
-#endif
-#endif
-#else
 #include <linux/types.h>
-#endif
 
 enum {
   LINK_NONE,
@@ -81,7 +58,7 @@ struct config {
   __u64 fragmented;
   __u64 gso;
   __u32 session_max_age;
-  __u8  no_fixup;  // 1 if not using bpf_skb_change_type hack
+  __u8  no_fixup;  // no longer in use
   __u8  is_server; // 1 if server mode, 0 if client mode
 };
 
