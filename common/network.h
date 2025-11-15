@@ -25,6 +25,8 @@ static inline uint64_t htobe64(uint64_t x) {
 static inline uint64_t be64toh(uint64_t x) {
   return bswap64(x);
 }
+
+typedef unsigned int __be32;
 #else
 #include <arpa/inet.h>
 #include <endian.h>
