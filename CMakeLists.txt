@@ -9,7 +9,7 @@ endif()
 
 set(CMAKE_C_STANDARD 11)
 add_compile_options(-Wall -Wextra -Wno-error)
-add_definitions(-D_GNU_SOURCE=1 -DPROJECT_NAME=${CMAKE_PROJECT_NAME} -DINSTALL_PREFIX_DIR=${CMAKE_INSTALL_PREFIX})
+add_definitions(-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE=1 -DPROJECT_NAME=${CMAKE_PROJECT_NAME} -DINSTALL_PREFIX_DIR=${CMAKE_INSTALL_PREFIX})
 include_directories(common)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 add_compile_definitions(
@@ -61,17 +61,19 @@ if (ENABLE_HARDEN_MODE)
     check_and_add_c_flag("-fcf-protection=branch")
   endif()
 
-  set(HARDEN_LINKER_FLAGS
-        -pie
-        -Wl,-z,nodlopen
-        -Wl,-z,noexecstack
-        -Wl,-z,relro
-        -Wl,-z,now
-        -Wl,--as-needed
-        -Wl,--no-copy-dt-needed-entries
-        -Wl,-z,max-page-size=4096
-        -Wl,--gc-sections
-  )
+  if(UNIX AND NOT APPLE)
+    set(HARDEN_LINKER_FLAGS
+          -pie
+          -Wl,-z,nodlopen
+          -Wl,-z,noexecstack
+          -Wl,-z,relro
+          -Wl,-z,now
+          -Wl,--as-needed
+          -Wl,--no-copy-dt-needed-entries
+          -Wl,-z,max-page-size=4096
+          -Wl,--gc-sections
+    )
+  endif()
 endif()
 
 configure_file(
@@ -105,8 +107,11 @@ else()
   set(MAKE_NOSILENT_ARG "")
 endif()
 
+if (NOT WIN32)
+  add_subdirectory(ktuctl)
+endif()
+
 add_subdirectory(common)
-add_subdirectory(ktuctl)
 
 # 查找libsodium
 find_path(SODIUM_INCLUDE_DIR sodium.h PATH_SUFFIXES sodium)
