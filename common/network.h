@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #ifdef _WIN32
 #include <winsock2.h>
 
@@ -17,8 +19,6 @@
 #define bswap64 _byteswap_uint64
 #endif
 
-#include <stdint.h>
-
 static inline uint64_t htobe64(uint64_t x) {
   return bswap64(x);
 }
@@ -26,13 +26,14 @@ static inline uint64_t be64toh(uint64_t x) {
   return bswap64(x);
 }
 
-typedef unsigned int __be32;
+typedef uint32_t __be32;
+typedef uint16_t __be16;
 #else
 #include <arpa/inet.h>
 #include <endian.h>
+#include <linux/types.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <linux/types.h>
 #endif
