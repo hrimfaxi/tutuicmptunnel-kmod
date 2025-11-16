@@ -120,4 +120,4 @@ struct tutu_session {
 #define TUTU_GET_FIRST_KEY_SESSION _IOR(TUTU_IOC_MAGIC, 0x17, struct tutu_session)
 #define TUTU_GET_NEXT_KEY_SESSION  _IOR(TUTU_IOC_MAGIC, 0x18, struct tutu_session)
 
-// vim: set sw=2 tabstop=2 expandtab:
+// vim: set sw=2 ts=2 expandtab:

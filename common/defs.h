@@ -66,4 +66,4 @@ struct gc_switch {
   __u8 enabled;
 };
 
-/* vim: set sw=2 expandtab: */
+// vim: set sw=2 ts=2 expandtab:

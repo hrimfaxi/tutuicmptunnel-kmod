@@ -106,7 +106,7 @@ echo "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT" | V tuct
   server $HOST \
   server-port $SERVER_PORT
 
-# vim: set sw=2 expandtab:
+# vim: set sw=2 ts=2 expandtab:
 ```
 
 ### 启动`tutuicmptunnel-kmod`
@@ -129,7 +129,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 
 或者使用一个`systemd-timer`达到同样目的：
 
-` /etc/systemd/system/tutuicmptunnel_sync.service`:
+`/etc/systemd/system/tutuicmptunnel_sync.service`:
 
 ```ini
 [Unit]

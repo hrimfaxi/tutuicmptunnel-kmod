@@ -46,4 +46,4 @@
 
 #define try2_p_ok(x, ...) try2_p_ret(x, NF_ACCEPT, ##__VA_ARGS__)
 
-// vim: set sw=2 tabstop=2 expandtab:
+// vim: set sw=2 ts=2 expandtab:

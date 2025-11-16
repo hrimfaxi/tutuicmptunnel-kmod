@@ -1966,4 +1966,4 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("outmatch@gmail.com");
 MODULE_DESCRIPTION("tutuicmptunnel: UDP to ICMP tunnel based on nftable hooks");
 
-// vim: set sw=2 tabstop=2 expandtab:
+// vim: set sw=2 ts=2 expandtab:

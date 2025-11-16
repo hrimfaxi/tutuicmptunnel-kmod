@@ -165,7 +165,7 @@ psk $PSK \
 server $HOST \
 server-port $SERVER_PORT
 
-# vim: set sw=2 expandtab:
+# vim: set sw=2 ts=2 expandtab:
 ```
 
 启动`xray-core`客户端前运行脚本即可。你也可以在`xray-core`的`systemd`单元文件中添加`ExecStartPre`自动运行这个脚本。
