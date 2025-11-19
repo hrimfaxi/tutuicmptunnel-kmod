@@ -15,10 +15,10 @@
 
 #include "list.h"
 #include "log.h"
-#include "parser.h"
 #include "resolve.h"
 #include "try.h"
 #include "tuctl.h"
+#include "tuparser.h"
 
 #define HOMEPAGE_STR "https://github.com/hrimfaxi/" STR(PROJECT_NAME)
 

@@ -6,7 +6,7 @@
 #include "../tucrypto/tucrypto.h"
 #include "common.h"
 #include "log.h"
-#include "parser.h"
+#include "tuparser.h"
 #include "read_script.h"
 #include "resolve.h"
 

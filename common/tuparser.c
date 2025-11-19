@@ -6,8 +6,8 @@
 
 #include "list.h"
 #include "log.h"
-#include "parser.h"
 #include "try.h"
+#include "tuparser.h"
 
 int parse_u16(const char *input, uint16_t *out_u16) {
   char         *endptr = NULL;
@@ -308,4 +308,4 @@ int escapestr(const char *str, char **escaped) {
   return 0;
 }
 
-/* vim: set sw=2 expandtab : */
+// vim: set sw=2 ts=2 expandtab:

@@ -13,7 +13,7 @@
 #include "common.h"
 #include "list.h"
 #include "log.h"
-#include "parser.h"
+#include "tuparser.h"
 #include "try.h"
 
 // 覆盖argv里的psk
