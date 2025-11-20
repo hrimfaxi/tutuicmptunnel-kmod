@@ -17,8 +17,7 @@ set(SOURCES
 
 get_filename_component(PROG_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
-include_directories(../common)
-include_directories(../kmod)
+include_directories(../common ../kmod ${CMAKE_CURRENT_SOURCE_DIR})
 add_definitions(-DPROG_NAME=${PROG_NAME})
 add_executable(${PROG_NAME} ${SOURCES}
   ${BISON_ScriptParser_OUTPUTS} ${FLEX_ScriptScanner_OUTPUTS}
