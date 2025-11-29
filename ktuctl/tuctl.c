@@ -286,9 +286,9 @@ int cmd_server(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     const char *tok = argv[i];
 
-    if (matches(tok, "no-fixup") == 0) {
+    if (matches(tok, "no-fixup")) {
       log_warn("ignore obsolete no-fixup keyword");
-    } else if (matches(tok, "max-age") == 0) {
+    } else if (matches(tok, "max-age")) {
       if (++i >= argc)
         goto usage;
       try(parse_age(argv[i], &session_max_age));
@@ -339,7 +339,7 @@ int cmd_client(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     const char *tok = argv[i];
 
-    if (matches(tok, "no-fixup") == 0) {
+    if (matches(tok, "no-fixup")) {
       log_warn("ignore obsolete no-fixup keyword");
     } else if (is_help_kw(tok)) {
       goto usage;
@@ -427,11 +427,11 @@ int cmd_client_add(int argc, char **argv) {
       if (++i >= argc)
         goto usage;
       address = argv[i];
-    } else if (matches(tok, "comment") == 0) {
+    } else if (matches(tok, "comment")) {
       if (++i >= argc)
         goto usage;
       comment = argv[i];
-    } else if (matches(tok, "port") == 0) {
+    } else if (matches(tok, "port")) {
       if (++i >= argc)
         goto usage;
       try(parse_port(argv[i], &port));
@@ -709,22 +709,22 @@ int cmd_server_add(int argc, char **argv) {
         goto usage;
 
       address = argv[i];
-    } else if (matches(tok, "sport") == 0) {
+    } else if (matches(tok, "sport")) {
       if (++i >= argc)
         goto usage;
 
       log_warn("ignore obsolete sport keyword");
-    } else if (matches(tok, "icmp-id") == 0) {
+    } else if (matches(tok, "icmp-id")) {
       if (++i >= argc)
         goto usage;
 
       try(parse_icmp_id(argv[i], &icmp_id));
-    } else if (matches(tok, "port") == 0) {
+    } else if (matches(tok, "port")) {
       if (++i >= argc)
         goto usage;
 
       try(parse_port(argv[i], &port));
-    } else if (matches(tok, "comment") == 0) {
+    } else if (matches(tok, "comment")) {
       if (++i >= argc)
         goto usage;
 
@@ -1020,7 +1020,7 @@ int cmd_status(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     const char *tok = argv[i];
 
-    if (matches(tok, "debug") == 0) {
+    if (matches(tok, "debug")) {
       debug = 1;
     } else if (is_help_kw(tok)) {
       goto usage;
