@@ -3,7 +3,7 @@ KSRC ?= $(if $(KERNEL_SRC),$(KERNEL_SRC),/lib/modules/$(KVER)/build)
 pwd=$(shell pwd)
 
 obj-m := tutuicmptunnel.o
-tutuicmptunnel-objs := tutu.o hashtab.o
+tutuicmptunnel-objs := tutu.o hashtab.o genl.o
 
 EXTRA_CFLAGS := -g -Wall -Wuninitialized -Wno-unused-parameter -Wno-type-limits
 
