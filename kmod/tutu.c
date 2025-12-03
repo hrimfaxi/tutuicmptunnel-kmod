@@ -499,10 +499,10 @@ struct tutu_stats_k {
   atomic64_t gso;
 };
 
-static struct tutu_htab *egress_peer_map;
-static struct tutu_htab *ingress_peer_map;
-static struct tutu_htab *session_map;
-static struct tutu_htab *user_map;
+struct tutu_htab *egress_peer_map;
+struct tutu_htab *ingress_peer_map;
+struct tutu_htab *session_map;
+struct tutu_htab *user_map;
 
 static struct tutu_config_rcu __rcu *g_cfg_ptr;
 
@@ -1326,7 +1326,7 @@ static struct class *tutu_class;
 #define DEV_NAME   KBUILD_MODNAME
 #define CLASS_NAME KBUILD_MODNAME
 
-static int tutu_export_config(struct tutu_config *out) {
+int tutu_export_config(struct tutu_config *out) {
   int                           err = -ENOENT;
   const struct tutu_config_rcu *cfg;
 
@@ -1352,7 +1352,7 @@ static struct tutu_config_rcu *set_new_config(struct tutu_config_rcu *newcfg) {
   return oldcfg;
 }
 
-static int tutu_set_config(const struct tutu_config *in) {
+int tutu_set_config(const struct tutu_config *in) {
   struct tutu_config_rcu *new_cfg, *old_cfg;
 
   new_cfg = kzalloc(sizeof(*new_cfg), GFP_KERNEL);
@@ -1367,7 +1367,7 @@ static int tutu_set_config(const struct tutu_config *in) {
   return 0;
 }
 
-static int tutu_export_stats(struct tutu_stats *out) {
+int tutu_export_stats(struct tutu_stats *out) {
   u64 packets_processed, packets_dropped, checksum_errors, fragmented, gso;
   int cpu;
 
@@ -1390,7 +1390,7 @@ static int tutu_export_stats(struct tutu_stats *out) {
   return 0;
 }
 
-static int tutu_clear_stats(void) {
+int tutu_clear_stats(void) {
   int cpu;
 
   for_each_possible_cpu(cpu) {
@@ -1896,14 +1896,20 @@ static int __init tutuicmptunnel_module_init(void) {
     goto err_class_destroy;
   }
 
-  err = register_netdevice_notifier(&g_netdev_notifier);
+  err = tutu_genl_init();
   if (err)
     goto err_device_destroy;
+
+  err = register_netdevice_notifier(&g_netdev_notifier);
+  if (err)
+    goto err_genl_exit;
 
   tutu_gc_start(1);
   pr_info("device ready at /dev/%s (major=%d minor=%d)\n", DEV_NAME, MAJOR(tutu_devno), MINOR(tutu_devno));
   return 0;
 
+err_genl_exit:
+  tutu_genl_exit();
 err_device_destroy:
   device_destroy(tutu_class, tutu_devno);
 err_class_destroy:
@@ -1940,6 +1946,7 @@ static void __exit tutuicmptunnel_module_exit(void) {
   tutu_gc_stop();
   unregister_netdevice_notifier(&g_netdev_notifier);
   cancel_delayed_work_sync(&g_reload_work);
+  tutu_genl_exit();
   device_destroy(tutu_class, tutu_devno);
   class_destroy(tutu_class);
   cdev_del(&tutu_cdev);
