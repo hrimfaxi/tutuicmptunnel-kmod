@@ -19,3 +19,5 @@ ktuctl/uid_map_lexer.c
 ktuctl/script_parser.h
 ktuctl/script_parser.c
 ktuctl/script_lexer.c
+
+.cache
