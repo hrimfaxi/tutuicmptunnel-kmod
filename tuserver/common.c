@@ -80,7 +80,7 @@ int remove_padding(uint8_t *pt, unsigned long long *pt_len) {
   return 0;
 }
 
-void replay_window_init(struct replay_window *rw, int window, int max_size) {
+void replay_window_init(struct replay_window *rw, uint32_t window, uint32_t max_size) {
   rw->window   = window;
   rw->max_size = max_size;
   rw->count    = 0;
