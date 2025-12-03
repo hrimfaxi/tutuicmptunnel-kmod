@@ -253,12 +253,15 @@ usage:
   goto err_cleanup;
 }
 
+#define TUTU_MODULE_PATH "/sys/module/tutuicmptunnel/"
+#define TUTU_PARA_PATH   TUTU_MODULE_PATH "parameters/"
+
 int cmd_load(int argc, char **argv) {
-  return handle_iface_op(argc, argv, "/sys/module/tutuicmptunnel/parameters/ifnames_add", "load", "Configuring");
+  return handle_iface_op(argc, argv, TUTU_PARA_PATH "ifnames_add", "load", "Configuring");
 }
 
 int cmd_unload(int argc, char **argv) {
-  return handle_iface_op(argc, argv, "/sys/module/tutuicmptunnel/parameters/ifnames_remove", "unload", "Deconfiguring");
+  return handle_iface_op(argc, argv, TUTU_PARA_PATH "ifnames_remove", "unload", "Deconfiguring");
 }
 
 #define CMD_SERVER_SUMMARY "Set up " STR(PROJECT_NAME) " in server mode"
@@ -1040,7 +1043,7 @@ int cmd_status(int argc, char **argv) {
 
   printf("%s: Role: %s\n\n", STR(PROJECT_NAME), cfg.is_server ? "Server" : "Client");
 
-  print_ifnames("/sys/module/tutuicmptunnel/parameters/ifnames");
+  print_ifnames(TUTU_PARA_PATH "ifnames");
 
   if (cfg.is_server) {
     struct tutu_user_info user_info;
