@@ -1,3 +1,8 @@
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
+pkg_check_modules(LIBNL3_GENL REQUIRED libnl-genl-3.0)
+
 find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
 
@@ -24,7 +29,22 @@ add_executable(${PROG_NAME} ${SOURCES}
   ${BISON_UidParser_OUTPUTS} ${FLEX_UidScanner_OUTPUTS}
 )
 
-target_link_libraries(${PROG_NAME} common pthread)
+target_include_directories(${PROG_NAME} PRIVATE
+  ${LIBNL3_INCLUDE_DIRS}
+  ${LIBNL3_GENL_INCLUDE_DIRS}
+)
+
+target_compile_options(${PROG_NAME} PRIVATE
+  ${LIBNL3_CFLAGS_OTHER}
+  ${LIBNL3_GENL_CFLAGS_OTHER}
+)
+
+target_link_libraries(${PROG_NAME} PRIVATE
+  common
+  pthread
+  ${LIBNL3_LIBRARIES}
+  ${LIBNL3_GENL_LIBRARIES}
+)
 
 install(TARGETS ${PROG_NAME} RUNTIME DESTINATION sbin)
 

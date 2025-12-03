@@ -13,6 +13,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <netlink/genl/ctrl.h>
+#include <netlink/genl/genl.h>
+#include <netlink/netlink.h>
+
 #include "list.h"
 #include "log.h"
 #include "resolve.h"
@@ -56,6 +60,8 @@ int cmd_help(int argc, char **argv);
 int cmd_version(int argc, char **argv);
 
 static int tutuicmptunnel_fd = -1;
+
+#if 0
 
 static void deinit_tutuicmptunnel(void) {
   if (tutuicmptunnel_fd >= 0)
@@ -117,6 +123,274 @@ static int delete_ingress_peer_map(int fd, const struct ingress_peer_key *key) {
   };
 
   return ioctl(fd, TUTU_DELETE_INGRESS, &ingress);
+}
+#endif
+
+static struct nl_sock *tutu_sock      = NULL;
+static int             tutu_family_id = -1;
+
+static void deinit_tutuicmptunnel(void) {
+  if (tutu_sock) {
+    nl_socket_free(tutu_sock);
+    tutu_sock = NULL;
+  }
+  tutu_family_id = -1;
+}
+
+/* 返回 0 成功，<0 失败（libnl 的负错误码 或 -ENOMEM） */
+static int init_tutuicmptunnel(void) {
+  int err;
+
+  deinit_tutuicmptunnel();
+
+  tutu_sock = nl_socket_alloc();
+  if (!tutu_sock)
+    return -ENOMEM;
+
+  err = nl_connect(tutu_sock, NETLINK_GENERIC);
+  if (err < 0) {
+    deinit_tutuicmptunnel();
+    return err;
+  }
+
+  /* 通过 generic netlink 控制 family 查自己 family 的 id */
+  tutu_family_id = genl_ctrl_resolve(tutu_sock, TUTU_GENL_FAMILY_NAME);
+  if (tutu_family_id < 0) {
+    err = tutu_family_id;
+    deinit_tutuicmptunnel();
+    return err;
+  }
+
+  return 0;
+}
+
+static int set_config_map(int fd, const struct tutu_config *cfg) {
+  struct nl_msg *msg;
+  int            err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, /* payload 头部长度：0，后面全靠 attrs 填 */
+              0,                                                 /* flags */
+              TUTU_CMD_SET_CONFIG, TUTU_GENL_VERSION);
+
+  err = nla_put(msg, TUTU_ATTR_CONFIG, sizeof(*cfg), cfg);
+  if (err) {
+    nlmsg_free(msg);
+    return err;
+  }
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  /* 这类 command 如果内核 handler 不回 payload，只看 errno，那么只等 ACK 即可 */
+  return nl_wait_for_ack(tutu_sock);
+}
+
+struct get_cfg_ctx {
+  struct tutu_config *cfg;
+  int                 done;
+  int                 err;
+};
+
+static int get_config_cb(struct nl_msg *msg, void *arg) {
+  struct get_cfg_ctx *ctx = arg;
+  struct nlmsghdr    *nlh = nlmsg_hdr(msg);
+  struct nlattr      *attrs[TUTU_ATTR_MAX + 1];
+  int                 err;
+
+  err = genlmsg_parse(nlh, 0, attrs, TUTU_ATTR_MAX, NULL);
+  if (err < 0) {
+    ctx->err  = err;
+    ctx->done = 1;
+    return NL_STOP;
+  }
+
+  if (!attrs[TUTU_ATTR_CONFIG]) {
+    ctx->err  = -EINVAL;
+    ctx->done = 1;
+    return NL_STOP;
+  }
+
+  if (nla_len(attrs[TUTU_ATTR_CONFIG]) != sizeof(*ctx->cfg)) {
+    ctx->err  = -EMSGSIZE;
+    ctx->done = 1;
+    return NL_STOP;
+  }
+
+  memcpy(ctx->cfg, nla_data(attrs[TUTU_ATTR_CONFIG]), sizeof(*ctx->cfg));
+
+  ctx->err  = 0;
+  ctx->done = 1;
+  return NL_STOP;
+}
+
+static int get_config_map(int fd, struct tutu_config *cfg) {
+  struct nl_msg     *msg;
+  struct get_cfg_ctx ctx = {
+    .cfg  = cfg,
+    .done = 0,
+    .err  = 0,
+  };
+  int err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_GET_CONFIG, TUTU_GENL_VERSION);
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  /* 安装一次性的 VALID 回调来解析那条回复 */
+  nl_socket_modify_cb(tutu_sock, NL_CB_VALID, NL_CB_CUSTOM, get_config_cb, &ctx);
+
+  while (!ctx.done) {
+    err = nl_recvmsgs_default(tutu_sock);
+    if (err < 0)
+      return err;
+  }
+
+  return ctx.err;
+}
+
+static int set_egress_peer_map(int fd, const struct egress_peer_key *key, const struct egress_peer_value *value) {
+  struct nl_msg     *msg;
+  struct tutu_egress egress;
+  int                err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  egress.key       = *key;
+  egress.value     = *value;
+  egress.map_flags = TUTU_ANY;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_UPDATE_EGRESS, TUTU_GENL_VERSION);
+
+  err = nla_put(msg, TUTU_ATTR_EGRESS, sizeof(egress), &egress);
+  if (err) {
+    nlmsg_free(msg);
+    return err;
+  }
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  return nl_wait_for_ack(tutu_sock);
+}
+
+static int set_ingress_peer_map(int fd, const struct ingress_peer_key *key, const struct ingress_peer_value *value) {
+  struct nl_msg      *msg;
+  struct tutu_ingress ingress;
+  int                 err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  ingress.key       = *key;
+  ingress.value     = *value;
+  ingress.map_flags = TUTU_NOEXIST;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_UPDATE_INGRESS, TUTU_GENL_VERSION);
+
+  err = nla_put(msg, TUTU_ATTR_INGRESS, sizeof(ingress), &ingress);
+  if (err) {
+    nlmsg_free(msg);
+    return err;
+  }
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  return nl_wait_for_ack(tutu_sock);
+}
+
+static int delete_egress_peer_map(int fd, const struct egress_peer_key *key) {
+  struct nl_msg     *msg;
+  struct tutu_egress egress;
+  int                err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  memset(&egress, 0, sizeof(egress));
+  egress.key = *key;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_DELETE_EGRESS, TUTU_GENL_VERSION);
+
+  err = nla_put(msg, TUTU_ATTR_EGRESS, sizeof(egress), &egress);
+  if (err) {
+    nlmsg_free(msg);
+    return err;
+  }
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  return nl_wait_for_ack(tutu_sock);
+}
+
+static int delete_ingress_peer_map(int fd, const struct ingress_peer_key *key) {
+  struct nl_msg      *msg;
+  struct tutu_ingress ingress;
+  int                 err;
+
+  if (!tutu_sock)
+    return -ENOTCONN;
+
+  memset(&ingress, 0, sizeof(ingress));
+  ingress.key = *key;
+
+  msg = nlmsg_alloc();
+  if (!msg)
+    return -ENOMEM;
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_DELETE_INGRESS, TUTU_GENL_VERSION);
+
+  err = nla_put(msg, TUTU_ATTR_INGRESS, sizeof(ingress), &ingress);
+  if (err) {
+    nlmsg_free(msg);
+    return err;
+  }
+
+  err = nl_send_auto(tutu_sock, msg);
+  nlmsg_free(msg);
+  if (err < 0)
+    return err;
+
+  return nl_wait_for_ack(tutu_sock);
 }
 
 static uid_map_t uids;
