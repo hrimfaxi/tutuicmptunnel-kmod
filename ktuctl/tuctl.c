@@ -172,7 +172,8 @@ static int add_iface(struct list_head *iface_list_head, const char *iface) {
 
 static int write_to_sysfs(const char *sysfs_name, const char *value) {
   int     fd;
-  ssize_t len, written;
+  size_t  len;
+  ssize_t written;
 
   fd = open(sysfs_name, O_WRONLY);
   if (fd < 0)
@@ -185,7 +186,7 @@ static int write_to_sysfs(const char *sysfs_name, const char *value) {
   if (written < 0)
     return -errno;
 
-  if (written != len)
+  if ((size_t) written != len)
     return -EIO; /* 未写全 */
 
   return 0;
@@ -921,7 +922,9 @@ static int get_boot_seconds(__u64 *seconds) {
       return -EFAULT;
     *seconds = (__u64) ts.tv_sec;
     return 0;
-  } else if (errno != EINVAL && errno != ENOTSUP) {
+  }
+
+  if (errno != EINVAL && errno != ENOTSUP) {
     return -errno;
   }
 #endif

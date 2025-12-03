@@ -720,7 +720,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
       iph             = ip_hdr(skb);
       icmph           = (typeof(icmph)) (skb->data + l4_offset);
       icmph->checksum = 0;
-      icmph->checksum = csum_fold(csum_partial((char *) icmph, icmp_len, 0));
+      icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
       skb->ip_summed  = CHECKSUM_UNNECESSARY;
     } else if (skb->ip_summed == CHECKSUM_PARTIAL) {
       // skb->csum_start: 不变，因为udp->icmp并没有修改包长度
@@ -746,7 +746,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
       // 同样为了兼容性修复icmpv6检验和
       icmp6h->icmp6_cksum = 0;
       // 计算 ICMPv6 校验和(带伪头部)
-      __wsum csum         = csum_partial((char *) icmp6h, icmp_len, 0);
+      __wsum csum         = csum_partial((char *) icmp6h, (int) icmp_len, 0);
       icmp6h->icmp6_cksum = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, csum);
       skb->ip_summed      = CHECKSUM_UNNECESSARY;
     } else if (skb->ip_summed == CHECKSUM_PARTIAL) {
