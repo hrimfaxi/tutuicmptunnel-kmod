@@ -64,10 +64,16 @@ static int ctrl_attr_cb(const struct nlattr *attr, void *data) {
 static int ctrl_cb(const struct nlmsghdr *nlh, void *data) {
   struct nlattr     *tb[CTRL_ATTR_MAX + 1] = {};
   struct genlmsghdr *genl                  = mnl_nlmsg_get_payload(nlh);
-  mnl_attr_parse(nlh, sizeof(*genl), ctrl_attr_cb, tb);
+  int                err;
+
+  err = mnl_attr_parse(nlh, sizeof(*genl), ctrl_attr_cb, tb);
+  if (err < 0)
+    return MNL_CB_ERROR;
+
   if (tb[CTRL_ATTR_FAMILY_ID]) {
     *(uint16_t *) data = mnl_attr_get_u16(tb[CTRL_ATTR_FAMILY_ID]);
   }
+
   return MNL_CB_OK;
 }
 
@@ -443,8 +449,7 @@ static void print_iface_usage(const char *prog, bool add) {
           "  %s a network interface %s " STR(PROJECT_NAME) ".\n\n"
                                                            "Arguments:\n"
                                                            "  %-22s One or more network interface names (e.g., eth0, ppp0)\n",
-          prog, add ? "load" : "unload", add ? "Add" : "Remove",
-          add ? "to" : "from", "IFACE [IFACE...]");
+          prog, add ? "load" : "unload", add ? "Add" : "Remove", add ? "to" : "from", "IFACE [IFACE...]");
 }
 
 /* 回调函数：打印每一个收到的接口名 */
@@ -501,7 +506,7 @@ static int handle_iface_op_nl(int argc, char **argv, bool is_add, const char *ac
       }
       const char *ifname = argv[++i];
 
-      err = (is_add ? nl_add_iface : nl_del_iface)(ifname);
+      err              = (is_add ? nl_add_iface : nl_del_iface)(ifname);
       action_performed = true;
       if (err < 0) {
         // 如果是删除且返回 ENOENT，通常可以忽略或报 Warning
