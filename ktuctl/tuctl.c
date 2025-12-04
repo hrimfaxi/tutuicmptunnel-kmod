@@ -792,11 +792,8 @@ int cmd_client_add(int argc, char **argv) {
 
   if (err < 0) { /* Netlink 封装函数出错返回 -1 */
     if (errno == EEXIST) {
-      if (lookup_ingress_peer_map(&ingress) < 0) {
-        /* Lookup 也失败了 (这种情况比较少见，可能是权限或并发删除) */
-        log_error(_("lookup ingress failed: %s"), strerror(errno));
-        goto err_cleanup;
-      }
+      /* Lookup 也失败了 (这种情况比较少见，可能是权限或并发删除) */
+      try2(lookup_ingress_peer_map(&ingress), _("lookup ingress failed: %s"), strerrno);
 
       /* 3. 比较端口 (保持原逻辑) */
       if (port == ntohs(ingress.value.port)) {
@@ -820,7 +817,7 @@ int cmd_client_add(int argc, char **argv) {
     }
   }
 
-  err = try2(set_egress_peer_map(&egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
+  try2(set_egress_peer_map(&egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
 
   {
     char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
@@ -1096,7 +1093,7 @@ int cmd_server_add(int argc, char **argv) {
   }
 
   struct in6_addr client_addr = {};
-  try(resolve_ip_addr(family, address, &client_addr));
+  try2(resolve_ip_addr(family, address, &client_addr));
 
   user = (typeof(user)) {
     .address = client_addr,
@@ -1121,7 +1118,7 @@ int cmd_server_add(int argc, char **argv) {
     .map_flags = TUTU_ANY,
   };
 
-  err = try2(set_user_info_map(&user_info), _("netlink update user info: %s"), strerrno);
+  try2(set_user_info_map(&user_info), _("netlink update user info: %s"), strerrno);
 
   {
     char  ipstr[INET6_ADDRSTRLEN];
@@ -1203,7 +1200,7 @@ int cmd_server_del(int argc, char **argv) {
     goto err_cleanup;
   }
 
-  err = try2(delete_user_info_map(uid), _("netlink delete user info failed: %s"), strerrno);
+  try2(delete_user_info_map(uid), _("netlink delete user info failed: %s"), strerrno);
 
   char *uidstr = NULL;
   try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
