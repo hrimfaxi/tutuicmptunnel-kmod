@@ -966,13 +966,11 @@ int cmd_client_del(int argc, char **argv) {
   foreach_ingress(check_and_del_ingress_cb, &ctx);
 
   if (ctx.found_egress) {
-    if (delete_egress_peer_map(&ctx.pending_egress_key) < 0)
-      log_error("delete egress failed: %s", strerrno);
+    try2(delete_egress_peer_map(&ctx.pending_egress_key), "delete egress failed: %s", strerrno);
   }
 
   if (ctx.found_ingress) {
-    if (delete_ingress_peer_map(&ctx.pending_ingress_key) < 0)
-      log_error("delete ingress failed: %s", strerrno);
+    try2(delete_ingress_peer_map(&ctx.pending_ingress_key), "delete ingress failed: %s", strerrno);
   }
 
   if (ctx.found_egress && ctx.found_ingress) {
