@@ -8,14 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-#include <netlink/genl/ctrl.h>
-#include <netlink/genl/genl.h>
-#include <netlink/netlink.h>
+#include <libmnl/libmnl.h>
+#include <linux/genetlink.h>
 
 #include "list.h"
 #include "log.h"
@@ -27,15 +25,6 @@
 #define HOMEPAGE_STR "https://github.com/hrimfaxi/" STR(PROJECT_NAME)
 
 #include "tutuicmptunnel.h"
-
-#define TUTU_MAP_FOREACH(fd, entry, GET_FIRST, GET_NEXT, LOOKUP, body)                                                         \
-  do {                                                                                                                         \
-    try2(ioctl(fd, GET_FIRST, &(entry)), #GET_FIRST ": %s", strerrno);                                                         \
-    do {                                                                                                                       \
-      try2(ioctl(fd, LOOKUP, &(entry)), #LOOKUP ": %s", strerrno);                                                             \
-      body                                                                                                                     \
-    } while (!ioctl(fd, GET_NEXT, &(entry)));                                                                                  \
-  } while (0)
 
 typedef struct {
   const char *name;
@@ -59,338 +48,327 @@ int cmd_script(int argc, char **argv);
 int cmd_help(int argc, char **argv);
 int cmd_version(int argc, char **argv);
 
-static int tutuicmptunnel_fd = -1;
+/* 全局状态 */
+static struct mnl_socket *g_nl        = NULL;
+static int                g_family_id = 0;
 
-#if 0
+static int ctrl_attr_cb(const struct nlattr *attr, void *data) {
+  const struct nlattr **tb   = data;
+  int                   type = mnl_attr_get_type(attr);
+  if (mnl_attr_type_valid(attr, CTRL_ATTR_MAX) < 0)
+    return MNL_CB_OK;
+  tb[type] = attr;
+  return MNL_CB_OK;
+}
+
+static int ctrl_cb(const struct nlmsghdr *nlh, void *data) {
+  struct nlattr     *tb[CTRL_ATTR_MAX + 1] = {};
+  struct genlmsghdr *genl                  = mnl_nlmsg_get_payload(nlh);
+  mnl_attr_parse(nlh, sizeof(*genl), ctrl_attr_cb, tb);
+  if (tb[CTRL_ATTR_FAMILY_ID]) {
+    *(uint16_t *) data = mnl_attr_get_u16(tb[CTRL_ATTR_FAMILY_ID]);
+  }
+  return MNL_CB_OK;
+}
+
+static int get_family_id_internal(struct mnl_socket *nl, const char *family_name) {
+  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  struct nlmsghdr   *nlh;
+  struct genlmsghdr *genl;
+  uint16_t           id = 0;
+  int                ret;
+
+  nlh              = mnl_nlmsg_put_header(buf);
+  nlh->nlmsg_type  = GENL_ID_CTRL;
+  nlh->nlmsg_flags = NLM_F_REQUEST;
+  nlh->nlmsg_seq   = 0;
+
+  genl          = mnl_nlmsg_put_extra_header(nlh, sizeof(struct genlmsghdr));
+  genl->cmd     = CTRL_CMD_GETFAMILY;
+  genl->version = 1;
+
+  mnl_attr_put_strz(nlh, CTRL_ATTR_FAMILY_NAME, family_name);
+
+  if (mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0)
+    return 0;
+  ret = mnl_socket_recvfrom(nl, buf, sizeof(buf));
+  if (ret < 0)
+    return 0;
+
+  ret = mnl_cb_run(buf, ret, 0, mnl_socket_get_portid(nl), ctrl_cb, &id);
+  return id;
+}
 
 static void deinit_tutuicmptunnel(void) {
-  if (tutuicmptunnel_fd >= 0)
-    close(tutuicmptunnel_fd);
-  tutuicmptunnel_fd = -1;
+  if (g_nl) {
+    mnl_socket_close(g_nl);
+    g_nl = NULL;
+  }
+  g_family_id = 0;
 }
 
 static int init_tutuicmptunnel(void) {
-  int fd;
-
-  deinit_tutuicmptunnel();
-  fd = open("/dev/tutuicmptunnel", O_RDWR, 0);
-  if (fd < 0)
-    return fd;
-
-  tutuicmptunnel_fd = fd;
-  return fd;
-}
-
-static int set_config_map(int fd, const struct tutu_config *cfg) {
-  return ioctl(fd, TUTU_SET_CONFIG, cfg);
-}
-
-static int get_config_map(int fd, struct tutu_config *cfg) {
-  return ioctl(fd, TUTU_GET_CONFIG, cfg);
-}
-
-static int set_egress_peer_map(int fd, const struct egress_peer_key *key, const struct egress_peer_value *value) {
-  struct tutu_egress egress = {
-    .key       = *key,
-    .value     = *value,
-    .map_flags = TUTU_ANY,
-  };
-
-  return ioctl(fd, TUTU_UPDATE_EGRESS, &egress);
-}
-
-static int set_ingress_peer_map(int fd, const struct ingress_peer_key *key, const struct ingress_peer_value *value) {
-  struct tutu_ingress ingress = {
-    .key       = *key,
-    .value     = *value,
-    .map_flags = TUTU_NOEXIST,
-  };
-
-  return ioctl(fd, TUTU_UPDATE_INGRESS, &ingress);
-}
-
-static int delete_egress_peer_map(int fd, const struct egress_peer_key *key) {
-  struct tutu_egress egress = {
-    .key = *key,
-  };
-
-  return ioctl(fd, TUTU_DELETE_EGRESS, &egress);
-}
-
-static int delete_ingress_peer_map(int fd, const struct ingress_peer_key *key) {
-  struct tutu_ingress ingress = {
-    .key = *key,
-  };
-
-  return ioctl(fd, TUTU_DELETE_INGRESS, &ingress);
-}
-#endif
-
-static struct nl_sock *tutu_sock      = NULL;
-static int             tutu_family_id = -1;
-
-static void deinit_tutuicmptunnel(void) {
-  if (tutu_sock) {
-    nl_socket_free(tutu_sock);
-    tutu_sock = NULL;
-  }
-  tutu_family_id = -1;
-}
-
-/* 返回 0 成功，<0 失败（libnl 的负错误码 或 -ENOMEM） */
-static int init_tutuicmptunnel(void) {
-  int err;
-
   deinit_tutuicmptunnel();
 
-  tutu_sock = nl_socket_alloc();
-  if (!tutu_sock)
-    return -ENOMEM;
+  g_nl = mnl_socket_open(NETLINK_GENERIC);
+  if (!g_nl)
+    return -1;
 
-  err = nl_connect(tutu_sock, NETLINK_GENERIC);
-  if (err < 0) {
+  if (mnl_socket_bind(g_nl, 0, MNL_SOCKET_AUTOPID) < 0) {
     deinit_tutuicmptunnel();
-    return err;
+    return -1;
   }
 
-  /* 通过 generic netlink 控制 family 查自己 family 的 id */
-  tutu_family_id = genl_ctrl_resolve(tutu_sock, TUTU_GENL_FAMILY_NAME);
-  if (tutu_family_id < 0) {
-    err = tutu_family_id;
+  g_family_id = get_family_id_internal(g_nl, TUTU_GENL_FAMILY_NAME);
+  if (!g_family_id) {
     deinit_tutuicmptunnel();
-    return err;
+    errno = ENOENT;
+    return -1;
   }
 
-  return 0;
+  return mnl_socket_get_fd(g_nl);
 }
 
-static int set_config_map(int fd, const struct tutu_config *cfg) {
-  struct nl_msg *msg;
-  int            err;
+/* --- 内部辅助：发送简单的 Request (用于 Update/Delete/Set) --- */
+static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len, int flags) {
+  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  struct nlmsghdr   *nlh;
+  struct genlmsghdr *genl;
+  ssize_t            ret;
 
-  if (!tutu_sock)
-    return -ENOTCONN;
-
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, /* payload 头部长度：0，后面全靠 attrs 填 */
-              0,                                                 /* flags */
-              TUTU_CMD_SET_CONFIG, TUTU_GENL_VERSION);
-
-  err = nla_put(msg, TUTU_ATTR_CONFIG, sizeof(*cfg), cfg);
-  if (err) {
-    nlmsg_free(msg);
-    return err;
+  if (!g_nl) {
+    errno = EBADF;
+    return -1;
   }
 
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
+  nlh              = mnl_nlmsg_put_header(buf);
+  nlh->nlmsg_type  = g_family_id;
+  nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | flags;
+  nlh->nlmsg_seq   = time(NULL);
 
-  /* 这类 command 如果内核 handler 不回 payload，只看 errno，那么只等 ACK 即可 */
-  return nl_wait_for_ack(tutu_sock);
+  genl          = mnl_nlmsg_put_extra_header(nlh, sizeof(struct genlmsghdr));
+  genl->cmd     = cmd;
+  genl->version = TUTU_GENL_VERSION;
+
+  if (data && len > 0) {
+    mnl_attr_put(nlh, attr_type, len, data);
+  }
+
+  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
+    return -1;
+
+  ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf));
+  if (ret < 0)
+    return -1;
+
+  /* mnl_cb_run 会处理 NLMSG_ERROR，如果内核返回错误，这里会返回 -1 并设置 errno */
+  return mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL);
 }
 
-struct get_cfg_ctx {
-  struct tutu_config *cfg;
-  int                 done;
-  int                 err;
+/* --- 内部辅助：Lookup 回调 --- */
+static int single_data_cb(const struct nlmsghdr *nlh, void *data) {
+  struct nlattr *attr;
+
+  /*
+   * 修正点：
+   * 使用 mnl_attr_for_each 宏来遍历属性。
+   * 参数3 (offset): 必须跳过 Generic Netlink 头部 (sizeof(struct genlmsghdr))
+   */
+  mnl_attr_for_each(attr, nlh, sizeof(struct genlmsghdr)) {
+    /*
+     * 这里我们假设内核只回传了一个属性（例如 TUTU_ATTR_CONFIG），
+     * 或者我们只关心第一个属性。
+     */
+    if (data) {
+      memcpy(data, mnl_attr_get_payload(attr), mnl_attr_get_payload_len(attr));
+    }
+
+    /* 拿到第一个属性后，直接返回，不再继续遍历 */
+    return MNL_CB_OK;
+  }
+
+  return MNL_CB_OK;
+}
+
+static int set_config_map(const struct tutu_config *cfg) {
+  return send_simple_cmd(TUTU_CMD_SET_CONFIG, TUTU_ATTR_CONFIG, cfg, sizeof(*cfg), 0);
+}
+
+static int set_user_info_map(const struct tutu_user_info *info) {
+  /*
+   * 发送 UPDATE 命令
+   * map_flags 已经在 info 结构体里了，直接传整个结构体即可
+   */
+  return send_simple_cmd(TUTU_CMD_UPDATE_USER_INFO, TUTU_ATTR_USER_INFO, info, sizeof(*info), 0);
+}
+
+static int delete_user_info_map(__u8 uid) {
+  struct tutu_user_info info = {
+    .key = uid,
+  };
+
+  /* 发送 DELETE 命令，带上完整的结构体 */
+  return send_simple_cmd(TUTU_CMD_DELETE_USER_INFO, TUTU_ATTR_USER_INFO, &info, sizeof(info), 0);
+}
+
+/*
+ * 通用函数：发送 GET 请求并接收同步响应
+ * cmd:       命令字 (TUTU_CMD_...)
+ * attr_type: 属性类型 (TUTU_ATTR_...)，仅在 in_data 存在时使用
+ * in_data:   发送给内核的数据 (Key)，可为 NULL
+ * in_len:    发送数据的长度
+ * out_data:  用于接收内核回传数据的缓冲区指针
+ */
+static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_t in_len, void *out_data) {
+  char               buf[MNL_SOCKET_BUFFER_SIZE];
+  struct nlmsghdr   *nlh;
+  struct genlmsghdr *genl;
+  ssize_t            ret;
+
+  if (!g_nl) {
+    errno = EBADF;
+    return -1;
+  }
+
+  nlh              = mnl_nlmsg_put_header(buf);
+  nlh->nlmsg_type  = g_family_id;
+  nlh->nlmsg_flags = NLM_F_REQUEST;
+  nlh->nlmsg_seq   = time(NULL);
+
+  genl          = mnl_nlmsg_put_extra_header(nlh, sizeof(struct genlmsghdr));
+  genl->cmd     = cmd;
+  genl->version = TUTU_GENL_VERSION;
+
+  /* 如果有输入数据 (比如 Lookup 时的 Key)，则放入属性 */
+  if (in_data && in_len > 0) {
+    mnl_attr_put(nlh, attr_type, in_len, in_data);
+  }
+
+  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
+    return -1;
+
+  ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf));
+  if (ret < 0)
+    return -1;
+
+  /* 使用 single_data_cb 解析回包，将结果填入 out_data */
+  return mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data);
+}
+
+/*
+ * Lookup: 既发送数据 (Key)，也接收数据 (Value 回填到 data)
+ */
+static int lookup_map(int cmd, int attr_type, void *data, size_t len) {
+  /* 输入和输出都使用同一个 data 指针 */
+  return send_and_recv_data(cmd, attr_type, data, len, data);
+}
+
+static int get_config_map(struct tutu_config *cfg) {
+  // 只接收数据，不发参数
+  return send_and_recv_data(TUTU_CMD_GET_CONFIG, 0, NULL, 0, cfg);
+}
+
+static int get_stats_map(struct tutu_stats *stats) {
+  // 只接收数据，不发参数
+  return send_and_recv_data(TUTU_CMD_GET_STATS, 0, NULL, 0, stats);
+}
+
+static int set_egress_peer_map(const struct egress_peer_key *key, const struct egress_peer_value *value) {
+  struct tutu_egress egress = {.key = *key, .value = *value, .map_flags = TUTU_ANY};
+  return send_simple_cmd(TUTU_CMD_UPDATE_EGRESS, TUTU_ATTR_EGRESS, &egress, sizeof(egress), 0);
+}
+
+static int set_ingress_peer_map(const struct ingress_peer_key *key, const struct ingress_peer_value *value) {
+  struct tutu_ingress ingress = {.key = *key, .value = *value, .map_flags = TUTU_NOEXIST};
+  return send_simple_cmd(TUTU_CMD_UPDATE_INGRESS, TUTU_ATTR_INGRESS, &ingress, sizeof(ingress), 0);
+}
+
+static int delete_egress_peer_map(const struct egress_peer_key *key) {
+  struct tutu_egress egress = {.key = *key};
+  return send_simple_cmd(TUTU_CMD_DELETE_EGRESS, TUTU_ATTR_EGRESS, &egress, sizeof(egress), 0);
+}
+
+static int delete_ingress_peer_map(const struct ingress_peer_key *key) {
+  struct tutu_ingress ingress = {.key = *key};
+  return send_simple_cmd(TUTU_CMD_DELETE_INGRESS, TUTU_ATTR_INGRESS, &ingress, sizeof(ingress), 0);
+}
+
+/* 新增：Lookup 函数，用于替换逻辑中的 "EEXIST 后查询" */
+static int lookup_ingress_peer_map(struct tutu_ingress *ingress) {
+  return lookup_map(TUTU_CMD_GET_INGRESS, TUTU_ATTR_INGRESS, ingress, sizeof(*ingress));
+}
+
+/* 定义回调函数原型 */
+typedef int (*tutu_iter_cb_t)(void *entry, void *user_data);
+
+/* 通用 Dump 回调内部实现 */
+struct iter_ctx {
+  int            attr_type;
+  int            struct_size;
+  tutu_iter_cb_t user_cb;
+  void          *user_data;
 };
 
-static int get_config_cb(struct nl_msg *msg, void *arg) {
-  struct get_cfg_ctx *ctx = arg;
-  struct nlmsghdr    *nlh = nlmsg_hdr(msg);
-  struct nlattr      *attrs[TUTU_ATTR_MAX + 1];
-  int                 err;
+static int dump_cb_internal(const struct nlmsghdr *nlh, void *data) {
+  struct iter_ctx *ctx = data;
+  struct nlattr   *attr;
 
-  err = genlmsg_parse(nlh, 0, attrs, TUTU_ATTR_MAX, NULL);
-  if (err < 0) {
-    ctx->err  = err;
-    ctx->done = 1;
-    return NL_STOP;
+  mnl_attr_for_each(attr, nlh, sizeof(struct genlmsghdr)) {
+    /* 校验属性类型 */
+    if (mnl_attr_get_type(attr) == ctx->attr_type) {
+      /* 校验属性长度 */
+      if (mnl_attr_get_payload_len(attr) == ctx->struct_size) {
+        /* 如果用户回调返回非0 (例如找到了目标要 break)，则返回 STOP 停止整个 Dump */
+        if (ctx->user_cb(mnl_attr_get_payload(attr), ctx->user_data))
+          return MNL_CB_STOP;
+      }
+    }
   }
-
-  if (!attrs[TUTU_ATTR_CONFIG]) {
-    ctx->err  = -EINVAL;
-    ctx->done = 1;
-    return NL_STOP;
-  }
-
-  if (nla_len(attrs[TUTU_ATTR_CONFIG]) != sizeof(*ctx->cfg)) {
-    ctx->err  = -EMSGSIZE;
-    ctx->done = 1;
-    return NL_STOP;
-  }
-
-  memcpy(ctx->cfg, nla_data(attrs[TUTU_ATTR_CONFIG]), sizeof(*ctx->cfg));
-
-  ctx->err  = 0;
-  ctx->done = 1;
-  return NL_STOP;
+  return MNL_CB_OK;
 }
 
-static int get_config_map(int fd, struct tutu_config *cfg) {
-  struct nl_msg     *msg;
-  struct get_cfg_ctx ctx = {
-    .cfg  = cfg,
-    .done = 0,
-    .err  = 0,
-  };
-  int err;
+static ssize_t tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, void *user_data) {
+  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  struct nlmsghdr   *nlh;
+  struct genlmsghdr *genl;
+  ssize_t            ret;
+  struct iter_ctx    ctx = {.attr_type = attr_type, .struct_size = size, .user_cb = cb, .user_data = user_data};
 
-  if (!tutu_sock)
-    return -ENOTCONN;
+  nlh              = mnl_nlmsg_put_header(buf);
+  nlh->nlmsg_type  = g_family_id;
+  nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+  nlh->nlmsg_seq   = time(NULL);
+  genl             = mnl_nlmsg_put_extra_header(nlh, sizeof(struct genlmsghdr));
+  genl->cmd        = cmd;
+  genl->version    = TUTU_GENL_VERSION;
 
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
+  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
+    return -1;
 
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_GET_CONFIG, TUTU_GENL_VERSION);
-
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
-
-  /* 安装一次性的 VALID 回调来解析那条回复 */
-  nl_socket_modify_cb(tutu_sock, NL_CB_VALID, NL_CB_CUSTOM, get_config_cb, &ctx);
-
-  while (!ctx.done) {
-    err = nl_recvmsgs_default(tutu_sock);
-    if (err < 0)
-      return err;
+  while ((ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf))) > 0) {
+    ret = mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx);
+    if (ret <= 0)
+      break;
   }
 
-  return ctx.err;
+  return ret;
 }
 
-static int set_egress_peer_map(int fd, const struct egress_peer_key *key, const struct egress_peer_value *value) {
-  struct nl_msg     *msg;
-  struct tutu_egress egress;
-  int                err;
-
-  if (!tutu_sock)
-    return -ENOTCONN;
-
-  egress.key       = *key;
-  egress.value     = *value;
-  egress.map_flags = TUTU_ANY;
-
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_UPDATE_EGRESS, TUTU_GENL_VERSION);
-
-  err = nla_put(msg, TUTU_ATTR_EGRESS, sizeof(egress), &egress);
-  if (err) {
-    nlmsg_free(msg);
-    return err;
-  }
-
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
-
-  return nl_wait_for_ack(tutu_sock);
+/* 具体的遍历封装 */
+static ssize_t foreach_egress(tutu_iter_cb_t cb, void *data) {
+  return tutu_foreach(TUTU_CMD_GET_EGRESS, TUTU_ATTR_EGRESS, sizeof(struct tutu_egress), cb, data);
 }
 
-static int set_ingress_peer_map(int fd, const struct ingress_peer_key *key, const struct ingress_peer_value *value) {
-  struct nl_msg      *msg;
-  struct tutu_ingress ingress;
-  int                 err;
-
-  if (!tutu_sock)
-    return -ENOTCONN;
-
-  ingress.key       = *key;
-  ingress.value     = *value;
-  ingress.map_flags = TUTU_NOEXIST;
-
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_UPDATE_INGRESS, TUTU_GENL_VERSION);
-
-  err = nla_put(msg, TUTU_ATTR_INGRESS, sizeof(ingress), &ingress);
-  if (err) {
-    nlmsg_free(msg);
-    return err;
-  }
-
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
-
-  return nl_wait_for_ack(tutu_sock);
+static ssize_t foreach_ingress(tutu_iter_cb_t cb, void *data) {
+  return tutu_foreach(TUTU_CMD_GET_INGRESS, TUTU_ATTR_INGRESS, sizeof(struct tutu_ingress), cb, data);
 }
 
-static int delete_egress_peer_map(int fd, const struct egress_peer_key *key) {
-  struct nl_msg     *msg;
-  struct tutu_egress egress;
-  int                err;
-
-  if (!tutu_sock)
-    return -ENOTCONN;
-
-  memset(&egress, 0, sizeof(egress));
-  egress.key = *key;
-
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_DELETE_EGRESS, TUTU_GENL_VERSION);
-
-  err = nla_put(msg, TUTU_ATTR_EGRESS, sizeof(egress), &egress);
-  if (err) {
-    nlmsg_free(msg);
-    return err;
-  }
-
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
-
-  return nl_wait_for_ack(tutu_sock);
+static ssize_t foreach_user_info(tutu_iter_cb_t cb, void *data) {
+  return tutu_foreach(TUTU_CMD_GET_USER_INFO, TUTU_ATTR_USER_INFO, sizeof(struct tutu_user_info), cb, data);
 }
 
-static int delete_ingress_peer_map(int fd, const struct ingress_peer_key *key) {
-  struct nl_msg      *msg;
-  struct tutu_ingress ingress;
-  int                 err;
-
-  if (!tutu_sock)
-    return -ENOTCONN;
-
-  memset(&ingress, 0, sizeof(ingress));
-  ingress.key = *key;
-
-  msg = nlmsg_alloc();
-  if (!msg)
-    return -ENOMEM;
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, tutu_family_id, 0, 0, TUTU_CMD_DELETE_INGRESS, TUTU_GENL_VERSION);
-
-  err = nla_put(msg, TUTU_ATTR_INGRESS, sizeof(ingress), &ingress);
-  if (err) {
-    nlmsg_free(msg);
-    return err;
-  }
-
-  err = nl_send_auto(tutu_sock, msg);
-  nlmsg_free(msg);
-  if (err < 0)
-    return err;
-
-  return nl_wait_for_ack(tutu_sock);
+static ssize_t foreach_session(tutu_iter_cb_t cb, void *data) {
+  return tutu_foreach(TUTU_CMD_GET_SESSION, TUTU_ATTR_SESSION, sizeof(struct tutu_session), cb, data);
 }
 
 static uid_map_t uids;
@@ -587,7 +565,7 @@ int cmd_server(int argc, char **argv) {
   };
 
   try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-  try2(set_config_map(tutuicmptunnel_fd, &cfg), _("set_config_map: %s"), strerrno);
+  try2(set_config_map(&cfg), _("set_config_map: %s"), strerrno);
 
   err = 0;
 err_cleanup:
@@ -634,7 +612,7 @@ int cmd_client(int argc, char **argv) {
     .is_server = 0,
   };
   try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-  try2(set_config_map(tutuicmptunnel_fd, &cfg));
+  try2(set_config_map(&cfg));
 
   err = 0;
 err_cleanup:
@@ -645,7 +623,7 @@ static int get_server_mode(bool *server) {
   struct tutu_config cfg = {};
   int                err;
 
-  try2(get_config_map(tutuicmptunnel_fd, &cfg), _("get_config_map: %s"), strerrno);
+  try2(get_config_map(&cfg), _("get_config_map: %s"), strerrno);
 
   if (server)
     *server = cfg.is_server;
@@ -777,13 +755,22 @@ int cmd_client_add(int argc, char **argv) {
       },
   };
 
-  err = set_ingress_peer_map(tutuicmptunnel_fd, &ingress.key, &ingress.value);
-  if (err) {
+  /* 1. 尝试设置 (TUTU_NOEXIST) */
+  err = set_ingress_peer_map(&ingress.key, &ingress.value);
+
+  if (err < 0) { /* Netlink 封装函数出错返回 -1 */
     if (errno == EEXIST) {
-      try2(ioctl(tutuicmptunnel_fd, TUTU_LOOKUP_INGRESS, &ingress), _("ioctl lookup ingress: %s"), strerrno);
+      if (lookup_ingress_peer_map(&ingress) < 0) {
+        /* Lookup 也失败了 (这种情况比较少见，可能是权限或并发删除) */
+        log_error(_("lookup ingress failed: %s"), strerror(errno));
+        goto err_cleanup;
+      }
+
+      /* 3. 比较端口 (保持原逻辑) */
       if (port == ntohs(ingress.value.port)) {
-        err = 0;
+        err = 0; /* 端口一致，视为成功 */
       } else {
+        /* 端口冲突，报错 (保持原逻辑) */
         char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
         try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
         try2(uid2string(uid, &uidstr, 1), "uid2string: %s", strret);
@@ -795,12 +782,13 @@ int cmd_client_add(int argc, char **argv) {
         goto err_cleanup;
       }
     } else {
-      log_error(_("set_ingress_peer_map failed: %s"), strerrno);
+      /* 其他错误 (保持原逻辑) */
+      log_error(_("set_ingress_peer_map failed: %s"), strerror(errno));
       goto err_cleanup;
     }
   }
 
-  err = try2(set_egress_peer_map(tutuicmptunnel_fd, &egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
+  err = try2(set_egress_peer_map(&egress.key, &egress.value), _("set_egress_peer_map: %s"), strerrno);
 
   {
     char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
@@ -838,6 +826,46 @@ static int print_client_del_usage(int argc, char **argv) {
           " in command output. \n",
 
           STR(PROG_NAME), argv[0], "uid UID", "user USERNAME", "address ADDRESS", "", "-n");
+  return 0;
+}
+
+struct delete_search_ctx {
+  uint8_t         target_uid;
+  struct in6_addr target_ip;
+
+  /* Egress 搜索结果 */
+  bool                   found_egress;
+  struct egress_peer_key pending_egress_key;
+
+  /* Ingress 搜索结果 */
+  bool                    found_ingress;
+  struct ingress_peer_key pending_ingress_key;
+};
+
+/* Egress 的回调：匹配 UID 和 IP，匹配则删除并停止遍历 */
+static int check_and_del_egress_cb(void *entry_ptr, void *user_data) {
+  struct tutu_egress       *egress = entry_ptr;
+  struct delete_search_ctx *ctx    = user_data;
+
+  if (ctx->target_uid == egress->value.uid && !memcmp(&egress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
+    ctx->pending_egress_key = egress->key;
+    ctx->found_egress       = true;
+    return 0; /* 不能提前停止，否则会因为遍历消息残留在socket里导致下一命令不执行 */
+  }
+
+  return 0; /* 继续遍历 */
+}
+
+/* Ingress 的回调：逻辑类似，但注意 uid 在 Key 中 */
+static int check_and_del_ingress_cb(void *entry_ptr, void *user_data) {
+  struct tutu_ingress      *ingress = entry_ptr;
+  struct delete_search_ctx *ctx     = user_data;
+
+  if (ctx->target_uid == ingress->key.uid && !memcmp(&ingress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
+    ctx->pending_ingress_key = ingress->key;
+    ctx->found_ingress       = true;
+    return 0;
+  }
   return 0;
 }
 
@@ -893,25 +921,29 @@ int cmd_client_del(int argc, char **argv) {
   try2(resolve_ip_addr(family, address, &in6));
   bool deleted = false;
 
-  struct tutu_egress egress;
+  /* 初始化搜索上下文，传入局部变量 uid 和 in6 */
+  struct delete_search_ctx ctx = {.target_uid = uid, .target_ip = in6};
 
-  TUTU_MAP_FOREACH(tutuicmptunnel_fd, egress, TUTU_GET_FIRST_KEY_EGRESS, TUTU_GET_NEXT_KEY_EGRESS, TUTU_LOOKUP_EGRESS, {
-    if (uid == egress.value.uid && !memcmp(&egress.key.address, &in6, sizeof(in6))) {
-      try2(delete_egress_peer_map(tutuicmptunnel_fd, &egress.key), _("delete egress peer map: %s"), strerrno);
-      deleted = true;
-      break;
-    }
-  });
+  /* 1. 遍历并处理 Egress */
+  foreach_egress(check_and_del_egress_cb, &ctx);
 
-  struct tutu_ingress ingress;
+  /* 2. 遍历并处理 Ingress */
+  /* 继续使用同一个 ctx */
+  foreach_ingress(check_and_del_ingress_cb, &ctx);
 
-  TUTU_MAP_FOREACH(tutuicmptunnel_fd, ingress, TUTU_GET_FIRST_KEY_INGRESS, TUTU_GET_NEXT_KEY_INGRESS, TUTU_LOOKUP_INGRESS, {
-    if (uid == ingress.key.uid && !memcmp(&ingress.key.address, &in6, sizeof(in6))) {
-      try2(delete_ingress_peer_map(tutuicmptunnel_fd, &ingress.key), _("delete ingress peer map: %s"), strerrno);
-      deleted = true;
-      break;
-    }
-  });
+  if (ctx.found_egress) {
+    if (delete_egress_peer_map(&ctx.pending_egress_key) < 0)
+      log_error("delete egress failed: %s", strerrno);
+  }
+
+  if (ctx.found_ingress) {
+    if (delete_ingress_peer_map(&ctx.pending_ingress_key) < 0)
+      log_error("delete ingress failed: %s", strerrno);
+  }
+
+  if (ctx.found_egress && ctx.found_ingress) {
+    deleted = true;
+  }
 
   char *uidstr = NULL;
   try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
@@ -1057,7 +1089,7 @@ int cmd_server_add(int argc, char **argv) {
     .map_flags = TUTU_ANY,
   };
 
-  err = try2(ioctl(tutuicmptunnel_fd, TUTU_UPDATE_USER_INFO, &user_info), _("ioctl update user info: %s"), strerrno);
+  err = try2(set_user_info_map(&user_info), _("netlink update user info: %s"), strerrno);
 
   {
     char  ipstr[INET6_ADDRSTRLEN];
@@ -1139,7 +1171,7 @@ int cmd_server_del(int argc, char **argv) {
     goto err_cleanup;
   }
 
-  err = try2(ioctl(tutuicmptunnel_fd, TUTU_DELETE_USER_INFO, &uid), _("ioctl get user info failed: %s"), strerrno);
+  err = try2(delete_user_info_map(uid), _("netlink delete user info failed: %s"), strerrno);
 
   char *uidstr = NULL;
   try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
@@ -1178,13 +1210,6 @@ static void print_comment(const char *comment, size_t comment_len, int dsl) {
 
   printf(dsl ? " comment " : ", Comment: ");
   printf("%.*s", (int) comment_len, comment);
-}
-
-static int get_stats_map(int fd, struct tutu_stats *stats) {
-  int err;
-
-  err = ioctl(fd, TUTU_GET_STATS, stats);
-  return err;
 }
 
 static int get_boot_seconds(__u64 *seconds) {
@@ -1291,6 +1316,130 @@ err_cleanup:
   return err;
 }
 
+static int print_user_info_cb(void *entry_ptr, void *user_data) {
+  (void) user_data;
+  struct tutu_user_info *u_info = entry_ptr; // 强转类型
+
+  char            ipstr[INET6_ADDRSTRLEN];
+  struct in6_addr in6    = u_info->value.address;
+  char           *uidstr = NULL;
+
+  /* 转换 IPv6 地址 */
+  if (ipv6_ntop(ipstr, &in6) < 0) {
+    // 如果你的环境里有 log_error，可以用它，否则用 fprintf
+    fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
+    return 0; // Skip this one
+  }
+
+  /* 转换 UID */
+  // 注意：原代码 u_info.key 是传值，uid2string 原型可能是 (uint8_t, char**, ...)
+  if (uid2string(u_info->key, &uidstr, 0) < 0) {
+    fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
+    return 0;
+  }
+
+  /* 打印主要信息 */
+  printf("  %s, Address: %s, Dport: %u, ICMP: %u", uidstr, ipstr, ntohs(u_info->value.dport), ntohs(u_info->value.icmp_id));
+
+  /* 释放由 uid2string 分配的内存 */
+  free(uidstr);
+
+  /* 打印注释 (假设 print_comment 只是打印不换行) */
+  print_comment((const char *) u_info->value.comment, sizeof(u_info->value.comment), 0);
+  printf("\n");
+
+  return 0; /* 返回 0 表示继续遍历下一个 */
+}
+
+static int print_session_cb(void *entry_ptr, void *user_data) {
+  (void) user_data;
+
+  /* 强转指针类型 */
+  struct tutu_session *sess = entry_ptr;
+
+  char            ipstr[INET6_ADDRSTRLEN];
+  struct in6_addr in6    = sess->key.address;
+  char           *uidstr = NULL;
+
+  if (ipv6_ntop(ipstr, &in6) < 0) {
+    log_error("ipv6_ntop failed: %s", strerrno);
+    return 0;
+  }
+
+  if (uid2string(sess->value.uid, &uidstr, 0) < 0) {
+    log_error("uid2string failed: %s", strerrno);
+    return 0;
+  }
+
+  /* 打印逻辑 */
+  printf("  Address: %s, SPort: %u, DPort: %u => %s, Age: %llu, Client Sport: %u\n", ipstr, ntohs(sess->key.sport),
+         ntohs(sess->key.dport), uidstr, (unsigned long long) sess->value.age, /* 强转以匹配 %llu */
+         ntohs(sess->value.client_sport));
+
+  free(uidstr);
+
+  return 0; /* 返回 0 表示继续遍历 */
+}
+
+static int print_egress_peer_cb(void *entry_ptr, void *user_data) {
+  struct tutu_egress *egress = entry_ptr;
+  int                *cnt    = user_data; /* 将 user_data 还原为 int 指针 */
+
+  /* 原逻辑的过滤条件: if (ntohs(egress.key.port)) */
+  if (ntohs(egress->key.port)) {
+    char            ipstr[INET6_ADDRSTRLEN];
+    struct in6_addr in6    = egress->key.address;
+    char           *uidstr = NULL;
+
+    /* 替换 try2 宏为标准错误打印，出错不中断遍历 */
+    if (ipv6_ntop(ipstr, &in6) < 0) {
+      fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
+      return 0;
+    }
+
+    if (uid2string(egress->value.uid, &uidstr, 0) < 0) {
+      fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
+      return 0;
+    }
+
+    printf("  %s, Address: %s, Port: %u", uidstr, ipstr, ntohs(egress->key.port));
+
+    free(uidstr);
+
+    print_comment((const char *) egress->value.comment, sizeof(egress->value.comment), 0);
+    printf("\n");
+
+    /* 核心逻辑：计数器加一 */
+    (*cnt)++;
+  }
+
+  return 0; /* 继续遍历 */
+}
+
+static int print_ingress_peer_cb(void *entry_ptr, void *user_data) {
+  (void) user_data;
+
+  struct tutu_ingress *ingress = entry_ptr;
+
+  char  ipstr[INET6_ADDRSTRLEN];
+  char *uidstr = NULL;
+
+  if (ipv6_ntop(ipstr, &ingress->key.address) < 0) {
+    fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
+    return 0;
+  }
+
+  if (uid2string(ingress->key.uid, &uidstr, 0) < 0) {
+    fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
+    return 0;
+  }
+
+  printf("  %s, Address: %s => Sport: %u\n", uidstr, ipstr, ntohs(ingress->value.port));
+
+  free(uidstr);
+  return 0;
+}
+
 int cmd_status(int argc, char **argv) {
   int err = 0;
 
@@ -1312,127 +1461,54 @@ int cmd_status(int argc, char **argv) {
   }
 
   struct tutu_config cfg = {};
-  try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-  try2(get_config_map(tutuicmptunnel_fd, &cfg), _("get_config_map: %s"), strerrno);
+  try2(init_tutuicmptunnel(), _("open tutuicmptunnel netlink: %s"), strerrno);
+  try2(get_config_map(&cfg), _("get_config_map: %s"), strerrno);
 
   printf("%s: Role: %s\n\n", STR(PROJECT_NAME), cfg.is_server ? "Server" : "Client");
 
   print_ifnames(TUTU_PARA_PATH "ifnames");
 
   if (cfg.is_server) {
-    struct tutu_user_info user_info;
-
     printf("Peers:\n");
     // 打印所有peer
 
-    err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_USER_INFO, &user_info);
-
-    if (err == 0) {
-      TUTU_MAP_FOREACH(tutuicmptunnel_fd, user_info, TUTU_GET_FIRST_KEY_USER_INFO, TUTU_GET_NEXT_KEY_USER_INFO,
-                       TUTU_LOOKUP_USER_INFO, {
-                         char            ipstr[INET6_ADDRSTRLEN];
-                         struct in6_addr in6    = user_info.value.address;
-                         char           *uidstr = NULL;
-
-                         try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s %s", ipstr, strret);
-                         try2(uid2string(user_info.key, &uidstr, 0), "uid2string: %s", strret);
-                         printf("  %s, Address: %s, "
-                                "Dport: %u, ICMP: %u",
-                                uidstr, ipstr, ntohs(user_info.value.dport), ntohs(user_info.value.icmp_id));
-                         free(uidstr);
-                         print_comment((const char *) user_info.value.comment, sizeof(user_info.value.comment), 0);
-                         printf("\n");
-                       });
-    } else {
-      if (errno != ENOENT) {
-        log_error("ioctl user_info first key failed: %s", strerrno);
-      }
+    if (foreach_user_info(print_user_info_cb, NULL) < 0) {
+      log_error("netlink user_info first key failed: %s", strerrno);
     }
 
     if (debug) {
-      struct tutu_session session;
-      __u64               boot = 0;
+      __u64 boot = 0;
 
       try2(get_boot_seconds(&boot), _("failed to get boot seconds: %s"), strret);
       printf("\nSessions (max age: %u, current: %llu):\n", cfg.session_max_age, boot);
-      err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_SESSION, &session);
-
-      if (err == 0) {
-        TUTU_MAP_FOREACH(tutuicmptunnel_fd, session, TUTU_GET_FIRST_KEY_SESSION, TUTU_GET_NEXT_KEY_SESSION, TUTU_LOOKUP_SESSION,
-                         {
-                           char            ipstr[INET6_ADDRSTRLEN];
-                           struct in6_addr in6;
-                           char           *uidstr = NULL;
-
-                           in6 = session.key.address;
-                           try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-                           try2(uid2string(session.value.uid, &uidstr, 0), "uid2string: %s", strret);
-                           printf("  Address: %s, SPort: %u, DPort: %u => "
-                                  "%s, Age: %llu, Client Sport: %u\n",
-                                  ipstr, ntohs(session.key.sport), ntohs(session.key.dport), uidstr, session.value.age,
-                                  ntohs(session.value.client_sport));
-                           free(uidstr);
-                         });
-      } else {
-        if (errno != ENOENT) {
-          log_error("ioctl session first key failed: %s", strerrno);
-        }
+      if (foreach_session(print_session_cb, NULL) < 0) {
+        log_error("netlink session first key failed: %s", strerrno);
       }
     }
   } else { /* client 角色 */
-    int                cnt = 0;
-    struct tutu_egress egress;
+    int cnt = 0;
 
     printf("Client Peers: \n");
-    err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_EGRESS, &egress);
 
-    if (err == 0) {
-      TUTU_MAP_FOREACH(tutuicmptunnel_fd, egress, TUTU_GET_FIRST_KEY_EGRESS, TUTU_GET_NEXT_KEY_EGRESS, TUTU_LOOKUP_EGRESS, {
-        if (ntohs(egress.key.port)) {
-          char            ipstr[INET6_ADDRSTRLEN];
-          struct in6_addr in6    = egress.key.address;
-          char           *uidstr = NULL;
-
-          try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-          try2(uid2string(egress.value.uid, &uidstr, 0), "uid2string: %s", strret);
-          printf("  %s, Address: %s, Port: %u", uidstr, ipstr, ntohs(egress.key.port));
-          free(uidstr);
-          print_comment((const char *) egress.value.comment, sizeof(egress.value.comment), 0);
-          printf("\n");
-          cnt++;
-        }
-      });
-    } else {
-      if (errno != ENOENT) {
-        log_error("ioctl egress first key failed: %s", strerrno);
-      }
+    /*
+     * 调用遍历函数，将 &cnt 作为参数传递。
+     * 如果 foreach 返回 < 0，说明 Netlink 通信出错。
+     */
+    if (foreach_egress(print_egress_peer_cb, &cnt) < 0) {
+      /* 对应原来的 log_error */
+      log_error(_("dump egress peers failed: %s"), strerror(errno));
     }
 
+    /* 如果回调一次没跑，或者跑了但没符合条件的，cnt 依然是 0 */
     if (!cnt) {
       printf("No peer configure\n");
     }
 
     if (debug) {
       printf("\nIngress peers:\n");
-      struct tutu_ingress ingress;
 
-      err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_INGRESS, &ingress);
-
-      if (err == 0) {
-        TUTU_MAP_FOREACH(tutuicmptunnel_fd, ingress, TUTU_GET_FIRST_KEY_INGRESS, TUTU_GET_NEXT_KEY_INGRESS, TUTU_LOOKUP_INGRESS,
-                         {
-                           char  ipstr[INET6_ADDRSTRLEN];
-                           char *uidstr = NULL;
-
-                           try2(ipv6_ntop(ipstr, &ingress.key.address), "ipv6_ntop: %s", strret);
-                           try2(uid2string(ingress.key.uid, &uidstr, 0), "uid2string: %s", strret);
-                           printf("  %s, Address: %s => Sport: %u\n", uidstr, ipstr, htons(ingress.value.port));
-                           free(uidstr);
-                         });
-      } else {
-        if (errno != ENOENT) {
-          log_error("ioctl ingress first key failed: %s", strerrno);
-        }
+      if (foreach_ingress(print_ingress_peer_cb, NULL) < 0) {
+        log_error(_("dump ingress peers failed: %s"), strerror(errno));
       }
     }
   }
@@ -1442,7 +1518,7 @@ int cmd_status(int argc, char **argv) {
 
     printf("\nPackets:\n");
 
-    try2(get_stats_map(tutuicmptunnel_fd, &stats), _("get_stats_map: %s"), strerrno);
+    try2(get_stats_map(&stats), _("get_stats_map: %s"), strerrno);
     printf("  processed:   %8llu\n", stats.packets_processed);
     printf("  dropped:     %8llu\n", stats.packets_dropped);
     printf("  cksum error: %8llu\n", stats.checksum_errors);
@@ -1473,6 +1549,80 @@ static int print_dump_usage(int argc, char *argv[]) {
   return 0;
 }
 
+/* 回调：导出 Server 模式下的 User Info */
+static int dump_user_info_cb(void *entry_ptr, void *user_data) {
+  (void) user_data;
+
+  struct tutu_user_info *u_info = entry_ptr;
+
+  char            ipstr[INET6_ADDRSTRLEN];
+  struct in6_addr in6    = u_info->value.address;
+  char           *uidstr = NULL;
+
+  /* 辅助函数出错不中断遍历，只打印错误 */
+  if (ipv6_ntop(ipstr, &in6) < 0) {
+    fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
+    return 0;
+  }
+
+  /* 注意：uid2string 第三个参数 1 表示 hex/decimal 格式控制？保持原代码逻辑 */
+  if (uid2string(u_info->key, &uidstr, 1) < 0) {
+    fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
+    return 0;
+  }
+
+  printf("server-add "
+         "%s "
+         "addr %s "
+         "icmp-id %u "
+         "port %u",
+         uidstr, ipstr, ntohs(u_info->value.icmp_id), ntohs(u_info->value.dport));
+
+  free(uidstr);
+
+  /* print_comment 第三个参数 1 保持原逻辑 (可能表示自动换行或加#号) */
+  print_comment((const char *) u_info->value.comment, sizeof(u_info->value.comment), 1);
+  printf("\n");
+
+  return 0;
+}
+
+/* 回调：导出 Client 模式下的 Egress Peers */
+static int dump_egress_cb(void *entry_ptr, void *user_data) {
+  (void) user_data;
+
+  struct tutu_egress *egress = entry_ptr;
+
+  /* 过滤逻辑：只导出端口不为 0 的项 */
+  if (ntohs(egress->key.port)) {
+    char            ipstr[INET6_ADDRSTRLEN];
+    struct in6_addr in6    = egress->key.address;
+    char           *uidstr = NULL;
+
+    if (ipv6_ntop(ipstr, &in6) < 0) {
+      fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
+      return 0;
+    }
+
+    if (uid2string(egress->value.uid, &uidstr, 1) < 0) {
+      fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
+      return 0;
+    }
+
+    printf("client-add "
+           "%s "
+           "addr %s "
+           "port %u",
+           uidstr, ipstr, ntohs(egress->key.port));
+
+    free(uidstr);
+
+    print_comment((const char *) egress->value.comment, sizeof(egress->value.comment), 1);
+    printf("\n");
+  }
+  return 0;
+}
+
 int cmd_dump(int argc, char **argv) {
   int                err = 0;
   struct tutu_config cfg = {};
@@ -1492,8 +1642,10 @@ int cmd_dump(int argc, char **argv) {
     }
   }
 
+  /* init_tutuicmptunnel 现在返回的是 Netlink Socket FD，也可能返回 -1 */
   try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-  try2(get_config_map(tutuicmptunnel_fd, &cfg), _("get_config_map: %s"), strerrno);
+
+  try2(get_config_map(&cfg), _("get_config_map: %s"), strerrno);
 
   {
     time_t    now = time(NULL);
@@ -1507,66 +1659,20 @@ int cmd_dump(int argc, char **argv) {
   }
 
   if (cfg.is_server) {
-    struct tutu_user_info user_info;
-
     printf("server max-age %u\n\n", cfg.session_max_age);
-    err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_USER_INFO, &user_info);
 
-    if (err == 0) {
-      TUTU_MAP_FOREACH(tutuicmptunnel_fd, user_info, TUTU_GET_FIRST_KEY_USER_INFO, TUTU_GET_NEXT_KEY_USER_INFO,
-                       TUTU_LOOKUP_USER_INFO, {
-                         char            ipstr[INET6_ADDRSTRLEN];
-                         struct in6_addr in6;
-                         char           *uidstr = NULL;
-
-                         in6 = user_info.value.address;
-                         try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-                         try2(uid2string(user_info.key, &uidstr, 1), "uid2string: %s", strret);
-                         printf("server-add "
-                                "%s "
-                                "addr %s "
-                                "icmp-id %u "
-                                "port %u",
-                                uidstr, ipstr, ntohs(user_info.value.icmp_id), ntohs(user_info.value.dport));
-                         free(uidstr);
-
-                         print_comment((const char *) user_info.value.comment, sizeof(user_info.value.comment), 1);
-                         printf("\n");
-                       });
-    } else {
-      if (errno != ENOENT) {
-        log_error("ioctl user_info first key failed: %s", strerrno);
-      }
+    /* 替换为 Netlink 遍历 */
+    if (foreach_user_info(dump_user_info_cb, NULL) < 0) {
+      log_error("dump user info failed: %s", strerrno);
+      /* 这里可以选择是否 goto err_cleanup，或者仅打印错误 */
     }
+
   } else {
-    struct tutu_egress egress;
-
     printf("client\n");
-    err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_EGRESS, &egress);
 
-    if (err == 0) {
-      TUTU_MAP_FOREACH(tutuicmptunnel_fd, egress, TUTU_GET_FIRST_KEY_EGRESS, TUTU_GET_NEXT_KEY_EGRESS, TUTU_LOOKUP_EGRESS, {
-        if (ntohs(egress.key.port)) {
-          char            ipstr[INET6_ADDRSTRLEN];
-          struct in6_addr in6    = egress.key.address;
-          char           *uidstr = NULL;
-
-          try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-          try2(uid2string(egress.value.uid, &uidstr, 1), "uid2string: %s", strret);
-          printf("client-add "
-                 "%s "
-                 "addr %s "
-                 "port %u",
-                 uidstr, ipstr, ntohs(egress.key.port));
-          free(uidstr);
-          print_comment((const char *) egress.value.comment, sizeof(egress.value.comment), 1);
-          printf("\n");
-        }
-      });
-    } else {
-      if (errno != ENOENT) {
-        log_error("ioctl egress first key failed: %s", strerrno);
-      }
+    /* 替换为 Netlink 遍历 */
+    if (foreach_egress(dump_egress_cb, NULL) < 0) {
+      log_error("dump egress failed: %s", strerrno);
     }
   }
 
@@ -1705,6 +1811,68 @@ static int print_reaper_usage(int argc, char *argv[]) {
   return 0;
 }
 
+static int delete_session_map(const struct session_key *key) {
+  /* 构造一个包含 Key 的完整结构体 */
+  struct tutu_session sess = {
+    .key = *key,
+  };
+  /* 发送 DELETE_SESSION 命令 */
+  return send_simple_cmd(TUTU_CMD_DELETE_SESSION, TUTU_ATTR_SESSION, &sess, sizeof(sess), 0);
+}
+
+/* 用于暂存待删除 Session Key 的节点 */
+struct reap_node {
+  struct session_key key;
+  struct list_head   list; /* 内核风格链表锚点 */
+};
+
+/* 上下文结构体 */
+struct reap_ctx {
+  __u64            now;
+  __u32            max_age;
+  struct list_head reap_list; /* 链表头 */
+  int              count;
+};
+
+/* 回调函数：检查并清理过期会话 */
+static int reap_session_cb(void *entry_ptr, void *user_data) {
+  struct tutu_session *sess = entry_ptr;
+  struct reap_ctx     *ctx  = user_data;
+  __u64                age  = sess->value.age;
+
+  /* 检查是否过期 */
+  if (!age || (ctx->now - age > ctx->max_age)) {
+    char              ipstr[INET6_ADDRSTRLEN];
+    struct in6_addr   in6    = sess->key.address;
+    char             *uidstr = NULL;
+    struct reap_node *node;
+
+    /* 打印日志 */
+    if (ipv6_ntop(ipstr, &in6) < 0)
+      return 0;
+    uid2string(sess->value.uid, &uidstr, 0);
+
+    printf("Reaping old entry: Address: %s, DPort: %u, SPort: %u, %s, Age: %llu\n", ipstr, ntohs(sess->key.dport),
+           ntohs(sess->key.sport), uidstr ? uidstr : "?", (unsigned long long) age);
+
+    free(uidstr);
+
+    /* 分配节点并加入链表 */
+    node = malloc(sizeof(*node));
+    if (node) {
+      memcpy(&node->key, &sess->key, sizeof(node->key));
+      INIT_LIST_HEAD(&node->list);
+      /* 加入 ctx 链表尾部 */
+      list_add_tail(&node->list, &ctx->reap_list);
+      ctx->count++;
+    } else {
+      log_error("malloc failed during reap");
+    }
+  }
+
+  return 0; /* 继续遍历，确保 Socket 排空 */
+}
+
 int cmd_reaper(int argc, char **argv) {
   struct tutu_config cfg = {};
 
@@ -1719,40 +1887,54 @@ int cmd_reaper(int argc, char **argv) {
   int   err = 0;
   __u64 now = get_monotonic_seconds();
 
+  struct reap_ctx ctx = {
+    .now = now,
+  };
+
+  /* 立即初始化链表头 */
+  INIT_LIST_HEAD(&ctx.reap_list);
+
   try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-  try2(ioctl(tutuicmptunnel_fd, TUTU_GET_CONFIG, &cfg), _("ioctl get tutu config: %s"), strerrno);
+  try2(get_config_map(&cfg), _("netlink get tutu config: %s"), strerrno);
   log_info("max allowed age: %u", cfg.session_max_age);
 
-  struct tutu_session session;
+  /* 获取配置成功后，更新 max_age */
+  ctx.max_age = cfg.session_max_age;
 
-  err = ioctl(tutuicmptunnel_fd, TUTU_GET_FIRST_KEY_SESSION, &session);
+  /* 1. 第一阶段：Dump 并收集 (Mark) */
+  if (foreach_session(reap_session_cb, &ctx) < 0) {
+    log_error("dump sessions failed: %s", strerrno);
+  }
 
-  if (err == 0) {
-    TUTU_MAP_FOREACH(tutuicmptunnel_fd, session, TUTU_GET_FIRST_KEY_SESSION, TUTU_GET_NEXT_KEY_SESSION, TUTU_LOOKUP_SESSION, {
-      char            ipstr[INET6_ADDRSTRLEN];
-      struct in6_addr in6;
-      __u64           age;
+  /* 2. 第二阶段：遍历链表并删除 (Sweep) */
+  if (ctx.count > 0) {
+    log_info("Found %d expired sessions, deleting...", ctx.count);
 
-      in6 = session.key.address;
-      try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
-      age = session.value.age;
-      if (!age || now - age > cfg.session_max_age) {
-        char *uidstr = NULL;
-        try2(uid2string(session.value.uid, &uidstr, 0), "uid2string: %s", strret);
-        printf("Reaping old entry: Address: %s, DPort: %u, SPort: %u, %s, Age: %llu\n", ipstr, ntohs(session.key.dport),
-               ntohs(session.key.sport), uidstr, age);
-        free(uidstr);
-        ioctl(tutuicmptunnel_fd, TUTU_DELETE_USER_INFO, &session.key);
+    struct reap_node *node, *tmp;
+
+    /* 使用 safe 版本，因为我们在循环里 free(node) */
+    list_for_each_entry_safe(node, tmp, &ctx.reap_list, list) {
+      /* 发起删除请求 */
+      if (delete_session_map(&node->key) < 0) {
+        log_warn("failed to delete session: %s", strerrno);
       }
-    });
-  } else {
-    if (errno != ENOENT) {
-      log_error("ioctl session first key failed: %s", strerrno);
+
+      /* 从链表中摘除并释放内存 */
+      list_del(&node->list);
+      free(node);
     }
   }
 
   err = 0;
 err_cleanup:
+  /* 如果中间出错 goto 这里的处理：防止内存泄漏 */
+  if (!list_empty(&ctx.reap_list)) {
+    struct reap_node *node, *tmp;
+    list_for_each_entry_safe(node, tmp, &ctx.reap_list, list) {
+      list_del(&node->list);
+      free(node);
+    }
+  }
   return err;
 }
 

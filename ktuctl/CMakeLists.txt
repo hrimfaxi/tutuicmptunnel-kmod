@@ -1,7 +1,6 @@
 find_package(PkgConfig REQUIRED)
 
-pkg_check_modules(LIBNL3 REQUIRED libnl-3.0)
-pkg_check_modules(LIBNL3_GENL REQUIRED libnl-genl-3.0)
+pkg_check_modules(LIBMNL REQUIRED libmnl)
 
 find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
@@ -30,20 +29,17 @@ add_executable(${PROG_NAME} ${SOURCES}
 )
 
 target_include_directories(${PROG_NAME} PRIVATE
-  ${LIBNL3_INCLUDE_DIRS}
-  ${LIBNL3_GENL_INCLUDE_DIRS}
+  ${LIBMNL_INCLUDE_DIRS}
 )
 
 target_compile_options(${PROG_NAME} PRIVATE
-  ${LIBNL3_CFLAGS_OTHER}
-  ${LIBNL3_GENL_CFLAGS_OTHER}
+  ${LIBMNL_CFLAGS_OTHER}
 )
 
 target_link_libraries(${PROG_NAME} PRIVATE
   common
   pthread
-  ${LIBNL3_LIBRARIES}
-  ${LIBNL3_GENL_LIBRARIES}
+  ${LIBMNL_LIBRARIES}
 )
 
 install(TARGETS ${PROG_NAME} RUNTIME DESTINATION sbin)
