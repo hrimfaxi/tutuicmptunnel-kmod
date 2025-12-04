@@ -1461,10 +1461,6 @@ int cmd_status(int argc, char **argv) {
 
     printf("Client Peers: \n");
 
-    /*
-     * 调用遍历函数，将 &cnt 作为参数传递。
-     * 如果 foreach 返回 < 0，说明 Netlink 通信出错。
-     */
     if (foreach_egress(print_egress_peer_cb, &cnt) < 0) {
       /* 对应原来的 log_error */
       log_error(_("dump egress peers failed: %s"), strerror(errno));
@@ -1630,16 +1626,13 @@ int cmd_dump(int argc, char **argv) {
   if (cfg.is_server) {
     printf("server max-age %u\n\n", cfg.session_max_age);
 
-    /* 替换为 Netlink 遍历 */
     if (foreach_user_info(dump_user_info_cb, NULL) < 0) {
       log_error("dump user info failed: %s", strerrno);
-      /* 这里可以选择是否 goto err_cleanup，或者仅打印错误 */
     }
 
   } else {
     printf("client\n");
 
-    /* 替换为 Netlink 遍历 */
     if (foreach_egress(dump_egress_cb, NULL) < 0) {
       log_error("dump egress failed: %s", strerrno);
     }
