@@ -4,6 +4,65 @@
 #include <linux/types.h>
 
 enum {
+  TUTU_CMD_UNSPEC,
+
+  TUTU_CMD_GET_CONFIG,
+  TUTU_CMD_SET_CONFIG,
+
+  TUTU_CMD_GET_STATS,
+  TUTU_CMD_CLR_STATS,
+
+  /* Egress */
+  TUTU_CMD_GET_EGRESS, /* Support DOIT (Lookup) & DUMPIT (List) */
+  TUTU_CMD_DELETE_EGRESS,
+  TUTU_CMD_UPDATE_EGRESS,
+
+  /* Ingress */
+  TUTU_CMD_GET_INGRESS, /* Support DOIT (Lookup) & DUMPIT (List) */
+  TUTU_CMD_DELETE_INGRESS,
+  TUTU_CMD_UPDATE_INGRESS,
+
+  /* Session */
+  TUTU_CMD_GET_SESSION, /* Support DOIT (Lookup) & DUMPIT (List) */
+  TUTU_CMD_DELETE_SESSION,
+  TUTU_CMD_UPDATE_SESSION,
+
+  /* User Info */
+  TUTU_CMD_GET_USER_INFO, /* Support DOIT (Lookup) & DUMPIT (List) */
+  TUTU_CMD_DELETE_USER_INFO,
+  TUTU_CMD_UPDATE_USER_INFO,
+
+  TUTU_CMD_IFNAME_GET,
+  TUTU_CMD_IFNAME_ADD,
+  TUTU_CMD_IFNAME_DEL,
+
+  TUTU_CMD_MAX,
+};
+
+#define TUTU_CMD_MAX (__TUTU_CMD_MAX - 1)
+
+enum {
+  TUTU_ATTR_UNSPEC,
+
+  TUTU_ATTR_CONFIG, /* binary: struct tutu_config */
+  TUTU_ATTR_STATS,  /* binary: struct tutu_stats */
+
+  TUTU_ATTR_EGRESS,    /* binary: struct tutu_egress */
+  TUTU_ATTR_INGRESS,   /* binary: struct tutu_ingress */
+  TUTU_ATTR_SESSION,   /* binary: struct tutu_session */
+  TUTU_ATTR_USER_INFO, /* binary: struct tutu_user_info */
+
+  TUTU_ATTR_IFNAME_NAME, /* String */
+
+  TUTU_ATTR_MAX,
+};
+
+#define TUTU_ATTR_MAX (TUTU_ATTR_MAX - 1)
+
+#define TUTU_GENL_FAMILY_NAME "tutuicmptunnel"
+#define TUTU_GENL_VERSION     0x1
+
+enum {
   TUTU_ANY     = 0, /* create new element or update existing */
   TUTU_NOEXIST = 1, /* create new element if it didn't exist */
   TUTU_EXIST   = 2, /* update existing element */
@@ -94,70 +153,6 @@ struct tutu_session {
   __u64                map_flags;
 };
 
-enum {
-  TUTU_CMD_UNSPEC,
-
-  TUTU_CMD_GET_CONFIG,
-  TUTU_CMD_SET_CONFIG,
-
-  TUTU_CMD_GET_STATS,
-  TUTU_CMD_CLR_STATS,
-
-  /* Egress */
-  TUTU_CMD_GET_EGRESS, /* Support DOIT (Lookup) & DUMPIT (List) */
-  TUTU_CMD_DELETE_EGRESS,
-  TUTU_CMD_UPDATE_EGRESS,
-
-  /* Ingress */
-  TUTU_CMD_GET_INGRESS, /* Support DOIT (Lookup) & DUMPIT (List) */
-  TUTU_CMD_DELETE_INGRESS,
-  TUTU_CMD_UPDATE_INGRESS,
-
-  /* Session */
-  TUTU_CMD_GET_SESSION, /* Support DOIT (Lookup) & DUMPIT (List) */
-  TUTU_CMD_DELETE_SESSION,
-  TUTU_CMD_UPDATE_SESSION,
-
-  /* User Info */
-  TUTU_CMD_GET_USER_INFO, /* Support DOIT (Lookup) & DUMPIT (List) */
-  TUTU_CMD_DELETE_USER_INFO,
-  TUTU_CMD_UPDATE_USER_INFO,
-
-  TUTU_CMD_IFNAME_GET,
-  TUTU_CMD_IFNAME_ADD,
-  TUTU_CMD_IFNAME_DEL,
-
-  TUTU_CMD_MAX,
-};
-
-#define TUTU_CMD_MAX (__TUTU_CMD_MAX - 1)
-
-enum {
-  TUTU_ATTR_UNSPEC,
-
-  TUTU_ATTR_CONFIG, /* binary: struct tutu_config */
-  TUTU_ATTR_STATS,  /* binary: struct tutu_stats */
-
-  TUTU_ATTR_EGRESS,    /* binary: struct tutu_egress */
-  TUTU_ATTR_INGRESS,   /* binary: struct tutu_ingress */
-  TUTU_ATTR_SESSION,   /* binary: struct tutu_session */
-  TUTU_ATTR_USER_INFO, /* binary: struct tutu_user_info */
-
-  TUTU_ATTR_IFNAME_NAME, /* String */
-
-  TUTU_ATTR_MAX,
-};
-
-#define TUTU_ATTR_MAX (TUTU_ATTR_MAX - 1)
-
-#define TUTU_GENL_FAMILY_NAME "tutuicmptunnel"
-#define TUTU_GENL_VERSION     0x1
-
-int tutu_export_config(struct tutu_config *out);
-int tutu_set_config(const struct tutu_config *in);
-int tutu_clear_stats(void);
-int tutu_export_stats(struct tutu_stats *out);
-
 struct tutu_htab;
 extern struct tutu_htab *egress_peer_map;
 extern struct tutu_htab *ingress_peer_map;
@@ -166,8 +161,11 @@ extern struct tutu_htab *user_map;
 
 int  tutu_genl_init(void);
 void tutu_genl_exit(void);
-
-int ifset_reload_config(void);
+int  tutu_export_config(struct tutu_config *out);
+int  tutu_set_config(const struct tutu_config *in);
+int  tutu_clear_stats(void);
+int  tutu_export_stats(struct tutu_stats *out);
+int  ifset_reload_config(void);
 bool net_has_device(const char *dev_name);
 
 // vim: set sw=2 ts=2 expandtab:

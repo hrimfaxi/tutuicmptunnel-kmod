@@ -387,7 +387,6 @@ static int tutu_genl_ifname_dump(struct sk_buff *skb, struct netlink_callback *c
   void                    *hdr;
 
   mutex_lock(&tutu_ifname_lock);
-
   list_for_each_entry(node, &tutu_ifname_list, list) {
     /* 跳过已经发送过的 */
     if (idx < start_idx) {
