@@ -77,12 +77,12 @@ static int ctrl_cb(const struct nlmsghdr *nlh, void *data) {
   return MNL_CB_OK;
 }
 
-static int get_family_id_internal(struct mnl_socket *nl, const char *family_name) {
+static int get_family_id_internal(struct mnl_socket *nl, const char *family_name, int *family_id) {
   char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
   uint16_t           id = 0;
-  int                ret;
+  int                err;
 
   nlh              = mnl_nlmsg_put_header(buf);
   nlh->nlmsg_type  = GENL_ID_CTRL;
@@ -95,14 +95,14 @@ static int get_family_id_internal(struct mnl_socket *nl, const char *family_name
 
   mnl_attr_put_strz(nlh, CTRL_ATTR_FAMILY_NAME, family_name);
 
-  if (mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0)
-    return 0;
-  ret = mnl_socket_recvfrom(nl, buf, sizeof(buf));
-  if (ret < 0)
-    return 0;
+  try2(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len));
+  err = try2(mnl_socket_recvfrom(nl, buf, sizeof(buf)));
+  try2(mnl_cb_run(buf, err, 0, mnl_socket_get_portid(nl), ctrl_cb, &id));
+  *family_id = id;
+  err        = 0;
 
-  ret = mnl_cb_run(buf, ret, 0, mnl_socket_get_portid(nl), ctrl_cb, &id);
-  return id;
+err_cleanup:
+  return err;
 }
 
 static void deinit_tutuicmptunnel(void) {
@@ -114,25 +114,24 @@ static void deinit_tutuicmptunnel(void) {
 }
 
 static int init_tutuicmptunnel(void) {
+  int err;
+
   deinit_tutuicmptunnel();
-
-  g_nl = mnl_socket_open(NETLINK_GENERIC);
-  if (!g_nl)
-    return -1;
-
-  if (mnl_socket_bind(g_nl, 0, MNL_SOCKET_AUTOPID) < 0) {
-    deinit_tutuicmptunnel();
-    return -1;
-  }
-
-  g_family_id = get_family_id_internal(g_nl, TUTU_GENL_FAMILY_NAME);
+  g_nl = try2_p(mnl_socket_open(NETLINK_GENERIC));
+  try2(mnl_socket_bind(g_nl, 0, MNL_SOCKET_AUTOPID));
+  try2(get_family_id_internal(g_nl, TUTU_GENL_FAMILY_NAME, &g_family_id));
   if (!g_family_id) {
-    deinit_tutuicmptunnel();
-    errno = ENOENT;
-    return -1;
+    err = -EINVAL;
+    goto err_cleanup;
   }
 
-  return mnl_socket_get_fd(g_nl);
+  err = 0;
+err_cleanup:
+  if (err) {
+    deinit_tutuicmptunnel();
+  }
+
+  return err;
 }
 
 /* --- 内部辅助：发送简单的 Request (用于 Update/Delete/Set) --- */
@@ -140,11 +139,10 @@ static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len,
   char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
-  ssize_t            ret;
+  int                err;
 
   if (!g_nl) {
-    errno = EBADF;
-    return -1;
+    return -EBADF;
   }
 
   nlh              = mnl_nlmsg_put_header(buf);
@@ -160,15 +158,13 @@ static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len,
     mnl_attr_put(nlh, attr_type, len, data);
   }
 
-  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
-    return -1;
+  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
+  err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
+  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL));
+  err = 0;
 
-  ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf));
-  if (ret < 0)
-    return -1;
-
-  /* mnl_cb_run 会处理 NLMSG_ERROR，如果内核返回错误，这里会返回 -1 并设置 errno */
-  return mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL);
+err_cleanup:
+  return err;
 }
 
 /* --- 内部辅助：Lookup 回调 --- */
@@ -229,7 +225,7 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
   char               buf[MNL_SOCKET_BUFFER_SIZE];
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
-  ssize_t            ret;
+  int                err;
 
   if (!g_nl) {
     errno = EBADF;
@@ -250,15 +246,14 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
     mnl_attr_put(nlh, attr_type, in_len, in_data);
   }
 
-  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
-    return -1;
-
-  ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf));
-  if (ret < 0)
-    return -1;
-
+  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
+  err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
   /* 使用 single_data_cb 解析回包，将结果填入 out_data */
-  return mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data);
+  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data));
+  err = 0;
+
+err_cleanup:
+  return err;
 }
 
 /*
@@ -343,11 +338,11 @@ static int dump_cb_internal(const struct nlmsghdr *nlh, void *data) {
   return MNL_CB_OK;
 }
 
-static ssize_t tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, void *user_data) {
+static int tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, void *user_data) {
   char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
-  ssize_t            ret;
+  int                err;
   struct iter_ctx    ctx = {.attr_type = attr_type, .struct_size = size, .user_cb = cb, .user_data = user_data};
 
   nlh              = mnl_nlmsg_put_header(buf);
@@ -358,37 +353,37 @@ static ssize_t tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb,
   genl->cmd        = cmd;
   genl->version    = TUTU_GENL_VERSION;
 
-  if (mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len) < 0)
-    return -1;
+  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
 
-  while ((ret = mnl_socket_recvfrom(g_nl, buf, sizeof(buf))) > 0) {
-    ret = mnl_cb_run(buf, ret, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx);
-    if (ret <= 0)
+  while ((err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)))) > 0) {
+    err = try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx));
+    if (err <= 0) /* EOF or error */
       break;
   }
 
-  return ret;
+err_cleanup:
+  return err;
 }
 
 /* 具体的遍历封装 */
-static ssize_t foreach_egress(tutu_iter_cb_t cb, void *data) {
+static int foreach_egress(tutu_iter_cb_t cb, void *data) {
   return tutu_foreach(TUTU_CMD_GET_EGRESS, TUTU_ATTR_EGRESS, sizeof(struct tutu_egress), cb, data);
 }
 
-static ssize_t foreach_ingress(tutu_iter_cb_t cb, void *data) {
+static int foreach_ingress(tutu_iter_cb_t cb, void *data) {
   return tutu_foreach(TUTU_CMD_GET_INGRESS, TUTU_ATTR_INGRESS, sizeof(struct tutu_ingress), cb, data);
 }
 
-static ssize_t foreach_user_info(tutu_iter_cb_t cb, void *data) {
+static int foreach_user_info(tutu_iter_cb_t cb, void *data) {
   return tutu_foreach(TUTU_CMD_GET_USER_INFO, TUTU_ATTR_USER_INFO, sizeof(struct tutu_user_info), cb, data);
 }
 
-static ssize_t foreach_session(tutu_iter_cb_t cb, void *data) {
+static int foreach_session(tutu_iter_cb_t cb, void *data) {
   return tutu_foreach(TUTU_CMD_GET_SESSION, TUTU_ATTR_SESSION, sizeof(struct tutu_session), cb, data);
 }
 
 /* 专门针对 ifname 的 foreach 包装，传入 size=0 */
-static ssize_t foreach_ifname(tutu_iter_cb_t cb, void *data) {
+static int foreach_ifname(tutu_iter_cb_t cb, void *data) {
   // 注意：第三个参数 size 传 0，表示不进行定长检查，因为字符串长度是可变的
   return tutu_foreach(TUTU_CMD_IFNAME_GET, TUTU_ATTR_IFNAME_NAME, 0, cb, data);
 }
@@ -467,26 +462,24 @@ static int ifname_print_cb(void *entry, void *user_data) {
   return 0; /* 返回 0 继续遍历 */
 }
 
-static ssize_t print_ifnames(void) {
-  bool    found = false;
-  ssize_t ret;
+static int print_ifnames(void) {
+  bool found = false;
+  int  err;
 
   printf("Managed interfaces:\n");
 
   /* 调用 Generic Netlink Dump */
-  ret = foreach_ifname(ifname_print_cb, &found);
-
-  if (ret < 0) {
-    log_error("Error dumping interfaces: %s", strerrno);
-    return ret;
-  }
+  try2(foreach_ifname(ifname_print_cb, &found), "Error dumping interfaces: %s", strerrno);
 
   if (!found) {
     printf("  [all interfaces]\n");
   }
 
   printf("\n");
-  return 0;
+  err = 0;
+
+err_cleanup:
+  return err;
 }
 
 static int handle_iface_op_nl(int argc, char **argv, bool is_add, const char *action_desc) {
@@ -886,7 +879,8 @@ static int check_and_del_egress_cb(void *entry_ptr, void *user_data) {
   struct tutu_egress       *egress = entry_ptr;
   struct delete_search_ctx *ctx    = user_data;
 
-  if (ctx->target_uid == egress->value.uid && !memcmp(&egress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
+  if (!ctx->found_egress && ctx->target_uid == egress->value.uid &&
+      !memcmp(&egress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
     ctx->pending_egress_key = egress->key;
     ctx->found_egress       = true;
     return 0; /* 不能提前停止，否则会因为遍历消息残留在socket里导致下一命令不执行 */
@@ -900,7 +894,8 @@ static int check_and_del_ingress_cb(void *entry_ptr, void *user_data) {
   struct tutu_ingress      *ingress = entry_ptr;
   struct delete_search_ctx *ctx     = user_data;
 
-  if (ctx->target_uid == ingress->key.uid && !memcmp(&ingress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
+  if (!ctx->found_ingress && ctx->target_uid == ingress->key.uid &&
+      !memcmp(&ingress->key.address, &ctx->target_ip, sizeof(struct in6_addr))) {
     ctx->pending_ingress_key = ingress->key;
     ctx->found_ingress       = true;
     return 0;
@@ -1440,7 +1435,7 @@ int cmd_status(int argc, char **argv) {
   }
 
   struct tutu_config cfg = {};
-  try2(init_tutuicmptunnel(), _("open tutuicmptunnel netlink: %s"), strerrno);
+  try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
   try2(get_config_map(&cfg), _("get_config_map: %s"), strerrno);
 
   printf("%s: Role: %s\n\n", STR(PROJECT_NAME), cfg.is_server ? "Server" : "Client");
@@ -1621,9 +1616,7 @@ int cmd_dump(int argc, char **argv) {
     }
   }
 
-  /* init_tutuicmptunnel 现在返回的是 Netlink Socket FD，也可能返回 -1 */
   try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
-
   try2(get_config_map(&cfg), _("get_config_map: %s"), strerrno);
 
   {
