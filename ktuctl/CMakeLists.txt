@@ -1,5 +1,4 @@
 find_package(PkgConfig REQUIRED)
-
 pkg_check_modules(LIBMNL REQUIRED libmnl)
 
 find_package(BISON REQUIRED)
