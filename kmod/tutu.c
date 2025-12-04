@@ -30,17 +30,8 @@
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
 
-/* Module parameter: comma-separated interface names, e.g., "wan,enp4s0" */
-static char *ifnames;
-MODULE_PARM_DESC(ifnames, "Comma-separated list of interface names to allow (empty means no filtering)");
-
-static char *ifnames_add;
-static char *ifnames_remove;
-static bool  ifnames_clear;
-
-MODULE_PARM_DESC(ifnames_add, "Comma-separated list of interface names to add");
-MODULE_PARM_DESC(ifnames_remove, "Comma-separated list of interface names to remove");
-MODULE_PARM_DESC(ifnames_clear, "Set to 'true' or '1' to clear the interface list");
+LIST_HEAD(tutu_ifname_list);
+DEFINE_MUTEX(tutu_ifname_lock);
 
 static u32 dev_mode = 0400;
 module_param(dev_mode, int, 0);
@@ -83,153 +74,98 @@ static struct ifset *ifset_alloc(unsigned int max_ifindex) {
   return w;
 }
 
-static int build_ifset_from_names(const char *csv, struct ifset **out_new) {
-  struct ifset *w;
-  unsigned int  max_idx;
-  char         *dup = NULL, *p, *tok;
-  int           err;
+static int build_ifset_from_list(struct ifset **out_new) {
+  struct ifset            *w;
+  unsigned int             max_idx;
+  struct tutu_ifname_node *node;
+  int                      err;
 
+  /*
+   * 1. 获取 RTNL 锁
+   * 保护网络设备列表，确保 max_ifindex 稳定，
+   * 且允许我们使用 __dev_get_by_name (无引用计数版本)
+   */
   rtnl_lock();
   max_idx = get_max_ifindex_locked();
 
+  /* 2. 分配 ifset 结构体 */
   w = ifset_alloc(max_idx);
   if (!w) {
     err = -ENOMEM;
-    goto out;
+    goto out_rtnl;
   }
 
-  if (!csv || !*csv) {
-    /* Empty list => allow all (bitmap left as zero, special-cased later) */
+  mutex_lock(&tutu_ifname_lock);
+  // 如果列表为空，表示“允许所有接口”
+  if (list_empty(&tutu_ifname_list)) {
     w->allow_all = true;
-    *out_new     = w;
-    err          = 0;
-    goto out;
-  }
+  } else {
+    w->allow_all = false;
 
-  w->allow_all = false;
-  dup          = kstrdup(csv, GFP_KERNEL);
-  if (!dup) {
-    kfree(w);
-    err = -ENOMEM;
-    goto out;
-  }
-  p = dup;
+    /* 遍历链表 */
+    list_for_each_entry(node, &tutu_ifname_list, list) {
+      struct net_device *dev;
 
-  while ((tok = strsep(&p, ",;: \t\n")) != NULL) {
-    struct net_device *dev;
-    if (!*tok)
-      continue;
-    dev = dev_get_by_name(&init_net, tok);
-    if (!dev) {
-      pr_warn("ifset: interface '%s' not found (ignored)\n", tok);
-      continue;
+      dev = __dev_get_by_name(&init_net, node->name);
+
+      if (!dev) {
+        /* 接口名在配置里，但系统里没这个网卡 */
+        pr_warn_ratelimited("tutu: interface '%s' not found (ignored)\n", node->name);
+        continue;
+      }
+
+      /* 设置位图 */
+      if (dev->ifindex <= w->max_ifindex)
+        __set_bit(dev->ifindex, w->bitmap);
     }
-    if (dev->ifindex <= w->max_ifindex)
-      __set_bit(dev->ifindex, w->bitmap);
-    dev_put(dev);
   }
 
-  kfree(dup);
+  mutex_unlock(&tutu_ifname_lock);
+
   *out_new = w;
   err      = 0;
-out:
+
+out_rtnl:
   rtnl_unlock();
   return err;
 }
 
-static int reload_config_locked(void) {
+int ifset_reload_config(void) {
   struct ifset *newcfg;
   struct ifset *oldcfg;
-  int           err = build_ifset_from_names(ifnames, &newcfg);
+  int           err;
+
+  err = build_ifset_from_list(&newcfg);
   if (err)
     return err;
 
+  mutex_lock(&g_ifset_mutex);
   oldcfg = rcu_replace_pointer(g_ifset, newcfg, lockdep_is_held(&g_ifset_mutex));
   kfree_rcu(oldcfg, rcu);
-
-  pr_debug("ifset: config reloaded (ifnames=\"%s\")\n", ifnames ? ifnames : "");
+  mutex_unlock(&g_ifset_mutex);
   return 0;
 }
 
 static void free_ifset(void) {
-  struct ifset *oldcfg;
+  struct ifset            *oldcfg;
+  struct tutu_ifname_node *node, *tmp;
 
   mutex_lock(&g_ifset_mutex);
   oldcfg = rcu_replace_pointer(g_ifset, NULL, lockdep_is_held(&g_ifset_mutex));
-  kfree(ifnames);
-  ifnames = NULL;
   mutex_unlock(&g_ifset_mutex);
 
-  kfree_rcu(oldcfg, rcu);
-}
+  if (oldcfg)
+    kfree_rcu(oldcfg, rcu);
 
-static int param_set_ifnames(const char *val, const struct kernel_param *kp) {
-  int   err  = 0;
-  char *dup  = NULL;
-  char *newp = NULL;
-  char *oldp;
-
-  // 允许 val 为空或仅空白，表示清空
-  if (val && *val) {
-    if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
-      pr_err("%s: string parameter too long\n", kp->name);
-      return -ENOSPC;
-    }
-
-    dup = kstrdup(val, GFP_KERNEL);
-    if (!dup)
-      return -ENOMEM;
-
-    // 就地去首尾空白
-    char *clean = strstrip(dup);
-
-    if (*clean) {
-      // 再拷一份，确保 ifnames 拥有独立的 kmalloc 缓冲
-      newp = kstrdup(clean, GFP_KERNEL);
-      if (!newp) {
-        kfree(dup);
-        return -ENOMEM;
-      }
-    }
-
-    // 如果 clean 为空，表示清空：newp 维持为 NULL
+  mutex_lock(&tutu_ifname_lock);
+  list_for_each_entry_safe(node, tmp, &tutu_ifname_list, list) {
+    list_del(&node->list);
+    kfree(node);
   }
-
-  mutex_lock(&g_ifset_mutex);
-  oldp    = ifnames;
-  ifnames = newp; // newp可能为NULL
-
-  err = reload_config_locked();
-  if (err) {
-    // 回滚
-    ifnames = oldp;
-    kfree(newp);
-  } else {
-    // 成功，释放旧值
-    kfree(oldp);
-  }
-
-  mutex_unlock(&g_ifset_mutex);
-
-  // 释放工作缓冲
-  kfree(dup);
-  return err;
+  mutex_unlock(&tutu_ifname_lock);
 }
 
-static int param_get_ifnames(char *buffer, const struct kernel_param *kp) {
-  int         n;
-  const char *p;
-
-  mutex_lock(&g_ifset_mutex);
-  p = ifnames ? ifnames : "";
-  // sysfs 参数读回通常以换行结尾
-  n = scnprintf(buffer, PAGE_SIZE, "%s\n", p);
-  mutex_unlock(&g_ifset_mutex);
-
-  return n;
-}
-
-static bool net_has_device(const char *dev_name) {
+bool net_has_device(const char *dev_name) {
   struct net_device *dev;
   bool               found = false;
 
@@ -243,217 +179,6 @@ static bool net_has_device(const char *dev_name) {
 
   return found;
 }
-
-static int param_set_ifnames_add(const char *val, const struct kernel_param *kp) {
-  char *val_alloc = NULL, *clean_val = NULL, *tmp_ifnames = NULL, *new_ifnames = NULL;
-  int   err = 0;
-
-  if (!val || !*val)
-    return 0;
-
-  if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
-    pr_err("%s: string parameter too long\n", kp->name);
-    return -ENOSPC;
-  }
-
-  /* 规则：不允许输入中包含逗号 */
-  if (strchr(val, ',')) {
-    pr_warn("ifset: 'add' parameter only accepts a single interface name.\n");
-    return -EINVAL;
-  }
-
-  val_alloc = kstrdup(val, GFP_KERNEL);
-  if (!val_alloc)
-    return -ENOMEM;
-
-  clean_val = strstrip(val_alloc);
-  if (!*clean_val) {
-    err = 0;
-    goto out_free_val;
-  }
-
-  if (!net_has_device(clean_val)) {
-    pr_warn("ifset: interface '%s' not found\n", clean_val);
-    err = -ENOENT;
-    goto out_free_val;
-  }
-
-  mutex_lock(&g_ifset_mutex);
-
-  do {
-    if (ifnames && *ifnames) {
-      char *p, *tok;
-      bool  found = false;
-
-      tmp_ifnames = kstrdup(ifnames, GFP_KERNEL);
-      if (!tmp_ifnames) {
-        err = -ENOMEM;
-        break;
-      }
-
-      p = tmp_ifnames;
-      while ((tok = strsep(&p, ",")) != NULL) {
-        if (!strcmp(tok, clean_val)) {
-          found = true;
-          break;
-        }
-      }
-
-      if (found) {
-        /* 接口已存在，视为空操作成功，直接退出 */
-        err = 0;
-        break;
-      }
-    }
-
-    new_ifnames = ifnames && *ifnames ? kasprintf(GFP_KERNEL, "%s,%s", ifnames, clean_val) : kstrdup(clean_val, GFP_KERNEL);
-    if (!new_ifnames) {
-      err = -ENOMEM;
-      break;
-    }
-
-    kfree(ifnames);
-    ifnames     = new_ifnames;
-    new_ifnames = NULL; // 所有权已转移
-    err         = reload_config_locked();
-  } while (0);
-
-  mutex_unlock(&g_ifset_mutex);
-
-out_free_val:
-  kfree(tmp_ifnames);
-  kfree(val_alloc);
-  kfree(new_ifnames);
-  return err;
-}
-
-static int param_set_ifnames_remove(const char *val, const struct kernel_param *kp) {
-  char  *new_ifnames = NULL;
-  char  *p_ifnames   = NULL;
-  char  *current_p   = NULL;
-  char  *tok         = NULL;
-  char  *val_alloc   = NULL;
-  char  *clean_val   = NULL;
-  int    err;
-  size_t alloc_size;
-
-  if (!val || !*val)
-    return 0;
-
-  if (strnlen(val, PAGE_SIZE) >= PAGE_SIZE - 1) {
-    pr_err("%s: string parameter too long\n", kp->name);
-    return -ENOSPC;
-  }
-
-  /* 规则：不允许输入中包含逗号 */
-  if (strchr(val, ',')) {
-    pr_warn("ifset: 'remove' parameter only accepts a single interface name.\n");
-    return -EINVAL;
-  }
-
-  val_alloc = kstrdup(val, GFP_KERNEL);
-  if (!val_alloc)
-    return -ENOMEM;
-
-  clean_val = strstrip(val_alloc);
-  if (!*clean_val) {
-    err = 0;
-    goto out_free_val;
-  }
-
-  mutex_lock(&g_ifset_mutex);
-
-  do {
-    err = 0;
-    if (!ifnames || !*ifnames)
-      break;
-
-    alloc_size  = strlen(ifnames) + 1;
-    new_ifnames = kzalloc(alloc_size, GFP_KERNEL);
-    if (!new_ifnames) {
-      err = -ENOMEM;
-      break;
-    }
-
-    p_ifnames = kstrdup(ifnames, GFP_KERNEL);
-    if (!p_ifnames) {
-      err = -ENOMEM;
-      break;
-    }
-
-    /* 核心逻辑：遍历列表，跳过匹配的元素，复制其他所有元素 */
-    char *end = new_ifnames + alloc_size;
-    current_p = new_ifnames;
-
-    while ((tok = strsep(&p_ifnames, ",")) != NULL) {
-      if (!*tok || end - current_p <= 1) /* 最少留一个空字符 */
-        continue;
-
-      /* 如果当前 token 不是要删除的那个，就把它加到新字串中 */
-      if (strcmp(tok, clean_val)) {
-        if (current_p != new_ifnames)
-          *current_p++ = ',';
-        current_p += scnprintf(current_p, end - current_p, "%s", tok);
-      }
-    }
-
-    // 保底写入结尾字符，防止边界或空串
-    end[-1] = '\0';
-
-    /* 更新全域状态 */
-    kfree(ifnames);
-    ifnames     = new_ifnames;
-    new_ifnames = NULL; /* 所有权已转移 */
-    err         = reload_config_locked();
-  } while (0);
-  mutex_unlock(&g_ifset_mutex);
-
-out_free_val:
-  kfree(p_ifnames);
-  kfree(new_ifnames);
-  kfree(val_alloc);
-  return err;
-}
-
-static int param_set_ifnames_clear(const char *val, const struct kernel_param *kp) {
-  bool clear;
-  int  err = 0;
-  if (kstrtobool(val, &clear) || !clear)
-    return 0;
-
-  mutex_lock(&g_ifset_mutex);
-  kfree(ifnames);
-  ifnames = NULL;
-  err     = reload_config_locked();
-  mutex_unlock(&g_ifset_mutex);
-  return err;
-}
-
-static const struct kernel_param_ops ifnames_ops = {
-  .set = param_set_ifnames,
-  .get = param_get_ifnames,
-};
-
-/* Bind our custom ops to the 'ifnames' parameter */
-module_param_cb(ifnames, &ifnames_ops, &ifnames, 0644);
-
-static const struct kernel_param_ops ifnames_add_ops = {
-  .set = param_set_ifnames_add,
-  .get = NULL,
-};
-module_param_cb(ifnames_add, &ifnames_add_ops, &ifnames_add, 0200); /* write-only */
-
-static const struct kernel_param_ops ifnames_remove_ops = {
-  .set = param_set_ifnames_remove,
-  .get = NULL,
-};
-module_param_cb(ifnames_remove, &ifnames_remove_ops, &ifnames_remove, 0200);
-
-static const struct kernel_param_ops ifnames_clear_ops = {
-  .set = param_set_ifnames_clear,
-  .get = NULL,
-};
-module_param_cb(ifnames_clear, &ifnames_clear_ops, &ifnames_clear, 0200);
 
 /* Decide if interface is allowed:
  * - if ifnames empty/NULL: allow all
@@ -1756,9 +1481,7 @@ MODULE_PARM_DESC(session_map_size, "Size for the session map, must be power of 2
 static void reload_work_func(struct work_struct *work) {
   int err;
 
-  mutex_lock(&g_ifset_mutex);
-  err = reload_config_locked();
-  mutex_unlock(&g_ifset_mutex);
+  err = ifset_reload_config();
 
   if (err)
     pr_err("reload_config_locked() failed: %d\n", err);
@@ -1801,9 +1524,7 @@ static int __init tutuicmptunnel_module_init(void) {
     return -EINVAL;
   }
 
-  mutex_lock(&g_ifset_mutex);
-  err = reload_config_locked();
-  mutex_unlock(&g_ifset_mutex);
+  err = ifset_reload_config();
   if (err) {
     pr_err("ifset config failed: %d\n", err);
     return err;

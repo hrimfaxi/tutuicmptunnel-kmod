@@ -316,12 +316,22 @@ static int dump_cb_internal(const struct nlmsghdr *nlh, void *data) {
   mnl_attr_for_each(attr, nlh, sizeof(struct genlmsghdr)) {
     /* 校验属性类型 */
     if (mnl_attr_get_type(attr) == ctx->attr_type) {
-      /* 校验属性长度 */
-      if (mnl_attr_get_payload_len(attr) == ctx->struct_size) {
-        /* 如果用户回调返回非0 (例如找到了目标要 break)，则返回 STOP 停止整个 Dump */
-        if (ctx->user_cb(mnl_attr_get_payload(attr), ctx->user_data))
-          return MNL_CB_STOP;
+      /*
+       * 如果 struct_size 为 0，跳过长度检查（用于字符串或变长数据）
+       * 否则严格检查长度（用于固定结构体）
+       */
+      if (ctx->struct_size > 0 && mnl_attr_get_payload_len(attr) != ctx->struct_size) {
+        continue; // 长度不匹配，跳过
       }
+
+      /*
+       * 针对字符串的安全处理：
+       * 如果 struct_size == 0，我们假设它是 NLA_NUL_STRING。
+       * 虽然 Generic Netlink 通常保证 \0，但为了安全可以使用 mnl_attr_get_str (它会做检查)。
+       * 这里为了保持通用性，我们直接传 payload。
+       */
+      if (ctx->user_cb(mnl_attr_get_payload(attr), ctx->user_data))
+        return MNL_CB_STOP;
     }
   }
   return MNL_CB_OK;
@@ -371,6 +381,28 @@ static ssize_t foreach_session(tutu_iter_cb_t cb, void *data) {
   return tutu_foreach(TUTU_CMD_GET_SESSION, TUTU_ATTR_SESSION, sizeof(struct tutu_session), cb, data);
 }
 
+/* 专门针对 ifname 的 foreach 包装，传入 size=0 */
+static ssize_t foreach_ifname(tutu_iter_cb_t cb, void *data) {
+  // 注意：第三个参数 size 传 0，表示不进行定长检查，因为字符串长度是可变的
+  return tutu_foreach(TUTU_CMD_IFNAME_GET, TUTU_ATTR_IFNAME_NAME, 0, cb, data);
+}
+
+static int nl_mod_iface(int cmd, const char *ifname) {
+  size_t len = strlen(ifname) + 1; /* 包含 \0 */
+  /* 0 表示 flags */
+  return send_simple_cmd(cmd, TUTU_ATTR_IFNAME_NAME, ifname, len, 0);
+}
+
+// 供外部调用的 Add
+int nl_add_iface(const char *ifname) {
+  return nl_mod_iface(TUTU_CMD_IFNAME_ADD, ifname);
+}
+
+// 供外部调用的 Del
+int nl_del_iface(const char *ifname) {
+  return nl_mod_iface(TUTU_CMD_IFNAME_DEL, ifname);
+}
+
 static uid_map_t uids;
 static int       numeric = 0;
 static int       debug   = 0;
@@ -405,63 +437,60 @@ static int string2uid(const char *string, uint8_t *uid) {
   return parse_uid(string, uid);
 }
 
-struct iface_node {
-  char             name[IFNAMSIZ];
-  struct list_head head;
-};
-
-static int add_iface(struct list_head *iface_list_head, const char *iface) {
-  struct iface_node *new_iface = (typeof(new_iface)) malloc(sizeof(*new_iface));
-
-  if (!new_iface)
-    return -ENOMEM;
-
-  strncpy(new_iface->name, iface, sizeof(new_iface->name));
-  new_iface->name[sizeof(new_iface->name) - 1] = '\0';
-  list_add_tail(&new_iface->head, iface_list_head);
-  return 0;
-}
-
-static int write_to_sysfs(const char *sysfs_name, const char *value) {
-  int     fd;
-  size_t  len;
-  ssize_t written;
-
-  fd = open(sysfs_name, O_WRONLY);
-  if (fd < 0)
-    return -errno;
-
-  len     = strlen(value);
-  written = write(fd, value, len);
-  close(fd);
-
-  if (written < 0)
-    return -errno;
-
-  if ((size_t) written != len)
-    return -EIO; /* 未写全 */
-
-  return 0;
-}
-
-static void print_iface_usage(const char *prog, const char *action_word) {
+static void print_iface_usage(const char *prog, bool add) {
   fprintf(stderr,
           "Usage: %s %s [OPTIONS] iface IFACE [IFACE...]\n\n"
           "  %s a network interface %s " STR(PROJECT_NAME) ".\n\n"
                                                            "Arguments:\n"
                                                            "  %-22s One or more network interface names (e.g., eth0, ppp0)\n",
-          prog, action_word, strcmp(action_word, "load") == 0 ? "Add" : "Remove",
-          strcmp(action_word, "load") == 0 ? "to" : "from", "IFACE [IFACE...]");
+          prog, add ? "load" : "unload", add ? "Add" : "Remove",
+          add ? "to" : "from", "IFACE [IFACE...]");
 }
 
-static int handle_iface_op(int argc, char **argv, const char *sysfs_path, const char *action_word, const char *action_desc) {
-  LIST_HEAD(iface_list_head);
-  struct iface_node *node, *tmp_node;
-  int                err = -EINVAL;
+/* 回调函数：打印每一个收到的接口名 */
+static int ifname_print_cb(void *entry, void *user_data) {
+  const char *name  = (const char *) entry;
+  bool       *found = (bool *) user_data;
 
-  if (help)
-    goto usage;
+  /* 打印接口名 */
+  printf("  %s\n", name);
 
+  /* 标记至少找到了一个 */
+  if (found)
+    *found = true;
+
+  return 0; /* 返回 0 继续遍历 */
+}
+
+static ssize_t print_ifnames(void) {
+  bool    found = false;
+  ssize_t ret;
+
+  printf("Managed interfaces:\n");
+
+  /* 调用 Generic Netlink Dump */
+  ret = foreach_ifname(ifname_print_cb, &found);
+
+  if (ret < 0) {
+    log_error("Error dumping interfaces: %s", strerrno);
+    return ret;
+  }
+
+  if (!found) {
+    printf("  [all interfaces]\n");
+  }
+
+  printf("\n");
+  return 0;
+}
+
+static int handle_iface_op_nl(int argc, char **argv, bool is_add, const char *action_desc) {
+  int  err              = 0;
+  bool action_performed = false;
+
+  try2(init_tutuicmptunnel(), _("open tutuicmptunnel device: %s"), strerrno);
+
+  /* 1. 解析参数并执行 Add/Del */
   for (int i = 1; i < argc; ++i) {
     const char *tok = argv[i];
 
@@ -471,7 +500,21 @@ static int handle_iface_op(int argc, char **argv, const char *sysfs_path, const 
         goto usage;
       }
       const char *ifname = argv[++i];
-      try2(add_iface(&iface_list_head, ifname), "add_iface: %s", strret);
+
+      err = (is_add ? nl_add_iface : nl_del_iface)(ifname);
+      action_performed = true;
+      if (err < 0) {
+        // 如果是删除且返回 ENOENT，通常可以忽略或报 Warning
+        if (!is_add && errno == ENOENT) {
+          log_warn("Interface %s not found in list.", ifname);
+          err = 0;
+        } else {
+          log_error("Failed to %s interface %s: %s", is_add ? "add" : "remove", ifname, strerrno);
+          goto err_cleanup;
+        }
+      } else {
+        log_info("%s interface: %s", action_desc, ifname);
+      }
     } else if (is_help_kw(tok)) {
       goto usage;
     } else {
@@ -480,40 +523,31 @@ static int handle_iface_op(int argc, char **argv, const char *sysfs_path, const 
     }
   }
 
-  if (list_empty(&iface_list_head)) {
+  if (!action_performed) {
     log_error("At least one interface name must be specified with \"iface\".");
-    goto usage;
+    return -EINVAL;
   }
 
-  list_for_each_entry(node, &iface_list_head, head) {
-    log_info("%s for interface: %s", action_desc, node->name);
-    try2(write_to_sysfs(sysfs_path, node->name), _("failed to write to sysfs: %s"), strret);
-  }
+  /* 2. 操作完成后，打印当前的列表状态 */
+  print_ifnames();
 
   err = 0;
-
 err_cleanup:
-  list_for_each_entry_safe(node, tmp_node, &iface_list_head, head) {
-    list_del(&node->head);
-    free(node);
-  }
   return err;
 
 usage:
-  print_iface_usage(STR(PROG_NAME), action_word);
+  print_iface_usage(STR(PROG_NAME), is_add);
   err = -EINVAL;
   goto err_cleanup;
 }
 
-#define TUTU_MODULE_PATH "/sys/module/tutuicmptunnel/"
-#define TUTU_PARA_PATH   TUTU_MODULE_PATH "parameters/"
-
+/* 对外暴露的命令函数 */
 int cmd_load(int argc, char **argv) {
-  return handle_iface_op(argc, argv, TUTU_PARA_PATH "ifnames_add", "load", "Configuring");
+  return handle_iface_op_nl(argc, argv, true, "Adding");
 }
 
 int cmd_unload(int argc, char **argv) {
-  return handle_iface_op(argc, argv, TUTU_PARA_PATH "ifnames_remove", "unload", "Deconfiguring");
+  return handle_iface_op_nl(argc, argv, false, "Removing");
 }
 
 #define CMD_SERVER_SUMMARY "Set up " STR(PROJECT_NAME) " in server mode"
@@ -1258,64 +1292,6 @@ static int get_boot_seconds(__u64 *seconds) {
   return -errno;
 }
 
-static void rstrip(char *s) {
-  size_t n = strlen(s);
-  while (n > 0 && isspace((unsigned char) s[n - 1]))
-    s[--n] = '\0';
-}
-
-static char *lskip(char *s) {
-  while (*s && isspace((unsigned char) *s))
-    s++;
-  return s;
-}
-
-static int print_ifnames(const char *path) {
-  int    err;
-  FILE  *f   = NULL;
-  char  *buf = NULL;
-  size_t cap = 0;
-
-  f = try2_p(fopen(path, "re"), "failed to open %s: %s", path, strerrno);
-
-  {
-    errno     = 0;
-    ssize_t n = getdelim(&buf, &cap, '\0', f);
-    try2(n >= 0 ? 0 : -1, "failed to read %s: %s", path, strerrno);
-  }
-
-  rstrip(buf);
-  char *p = lskip(buf);
-
-  printf("Managed interfaces:\n");
-
-  if (!*p) {
-    // 空字符串：表示所有接口被管理
-    printf("  [all interfaces]\n\n");
-    err = 0;
-    goto err_cleanup;
-  }
-
-  // CSV 分割并逐项打印
-  char *saveptr = NULL;
-  for (char *tok = strtok_r(p, ",", &saveptr); tok; tok = strtok_r(NULL, ",", &saveptr)) {
-    tok = lskip(tok);
-    rstrip(tok);
-    if (*tok == '\0')
-      continue;
-    printf("  %s\n", tok);
-  }
-
-  printf("\n");
-  err = 0;
-
-err_cleanup:
-  if (f)
-    fclose(f);
-  free(buf);
-  return err;
-}
-
 static int print_user_info_cb(void *entry_ptr, void *user_data) {
   (void) user_data;
   struct tutu_user_info *u_info = entry_ptr; // 强转类型
@@ -1466,7 +1442,7 @@ int cmd_status(int argc, char **argv) {
 
   printf("%s: Role: %s\n\n", STR(PROJECT_NAME), cfg.is_server ? "Server" : "Client");
 
-  print_ifnames(TUTU_PARA_PATH "ifnames");
+  print_ifnames();
 
   if (cfg.is_server) {
     printf("Peers:\n");

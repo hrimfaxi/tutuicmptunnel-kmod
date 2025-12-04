@@ -9,6 +9,9 @@
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
 
+extern struct list_head tutu_ifname_list;
+extern struct mutex     tutu_ifname_lock;
+
 /*
  * 兼容性处理：
  * Linux 5.2 引入了 family 级别的 policy (global policy)。
@@ -28,10 +31,11 @@ static const struct nla_policy tutu_genl_policy[TUTU_ATTR_MAX + 1] = {
   [TUTU_ATTR_CONFIG] = {.type = NLA_BINARY, .len = sizeof(struct tutu_config)},
   [TUTU_ATTR_STATS]  = {.type = NLA_BINARY, .len = sizeof(struct tutu_stats)},
 
-  [TUTU_ATTR_EGRESS]    = {.type = NLA_BINARY, .len = sizeof(struct tutu_egress)},
-  [TUTU_ATTR_INGRESS]   = {.type = NLA_BINARY, .len = sizeof(struct tutu_ingress)},
-  [TUTU_ATTR_SESSION]   = {.type = NLA_BINARY, .len = sizeof(struct tutu_session)},
-  [TUTU_ATTR_USER_INFO] = {.type = NLA_BINARY, .len = sizeof(struct tutu_user_info)},
+  [TUTU_ATTR_EGRESS]      = {.type = NLA_BINARY, .len = sizeof(struct tutu_egress)},
+  [TUTU_ATTR_INGRESS]     = {.type = NLA_BINARY, .len = sizeof(struct tutu_ingress)},
+  [TUTU_ATTR_SESSION]     = {.type = NLA_BINARY, .len = sizeof(struct tutu_session)},
+  [TUTU_ATTR_USER_INFO]   = {.type = NLA_BINARY, .len = sizeof(struct tutu_user_info)},
+  [TUTU_ATTR_IFNAME_NAME] = {.type = NLA_NUL_STRING, .len = IFNAMSIZ - 1},
 };
 
 static struct genl_family tutu_genl_family;
@@ -303,6 +307,114 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info) {
   return tutu_clear_stats();
 }
 
+/* 辅助函数：查找是否存在 */
+static bool __ifname_exists(const char *name) {
+  struct tutu_ifname_node *node;
+  list_for_each_entry(node, &tutu_ifname_list, list) {
+    if (!strcmp(node->name, name))
+      return true;
+  }
+  return false;
+}
+
+static int tutu_genl_ifname_add(struct sk_buff *skb, struct genl_info *info) {
+  struct tutu_ifname_node *node;
+  char                    *name;
+  int                      err;
+
+  if (!info->attrs[TUTU_ATTR_IFNAME_NAME])
+    return -EINVAL;
+
+  name = nla_data(info->attrs[TUTU_ATTR_IFNAME_NAME]);
+
+  if (!net_has_device(name))
+    return -ENODEV;
+
+  mutex_lock(&tutu_ifname_lock);
+
+  /* 查重 */
+  if (__ifname_exists(name)) {
+    err = -EEXIST;
+    goto out_unlock;
+  }
+
+  /* 分配新节点 */
+  node = kmalloc(sizeof(*node), GFP_KERNEL);
+  if (!node) {
+    err = -ENOMEM;
+    goto out_unlock;
+  }
+
+  strscpy(node->name, name, IFNAMSIZ);
+  list_add_tail(&node->list, &tutu_ifname_list);
+  mutex_unlock(&tutu_ifname_lock);
+
+  /* 触发配置重载（此处不能锁） */
+  return ifset_reload_config();
+
+out_unlock:
+  mutex_unlock(&tutu_ifname_lock);
+  return err;
+}
+
+static int tutu_genl_ifname_del(struct sk_buff *skb, struct genl_info *info) {
+  struct tutu_ifname_node *node, *tmp;
+  char                    *name;
+  bool                     found = false;
+
+  if (!info->attrs[TUTU_ATTR_IFNAME_NAME])
+    return -EINVAL;
+
+  name = nla_data(info->attrs[TUTU_ATTR_IFNAME_NAME]);
+
+  mutex_lock(&tutu_ifname_lock);
+  list_for_each_entry_safe(node, tmp, &tutu_ifname_list, list) {
+    if (!strcmp(node->name, name)) {
+      list_del(&node->list);
+      kfree(node);
+      found = true;
+      break; /* 找到了就退出 */
+    }
+  }
+
+  mutex_unlock(&tutu_ifname_lock);
+  return found ? ifset_reload_config() : -ENOENT;
+}
+
+static int tutu_genl_ifname_dump(struct sk_buff *skb, struct netlink_callback *cb) {
+  struct tutu_ifname_node *node;
+  int                      idx = 0, start_idx = (int) cb->args[0];
+  void                    *hdr;
+
+  mutex_lock(&tutu_ifname_lock);
+
+  list_for_each_entry(node, &tutu_ifname_list, list) {
+    /* 跳过已经发送过的 */
+    if (idx < start_idx) {
+      idx++;
+      continue;
+    }
+
+    /* 构造消息 */
+    hdr = genlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq, &tutu_genl_family, NLM_F_MULTI, TUTU_CMD_IFNAME_GET);
+    if (!hdr)
+      break; // Buffer 满了
+
+    if (nla_put_string(skb, TUTU_ATTR_IFNAME_NAME, node->name)) {
+      genlmsg_cancel(skb, hdr);
+      break; // Buffer 满了
+    }
+
+    genlmsg_end(skb, hdr);
+    idx++;
+  }
+
+  mutex_unlock(&tutu_ifname_lock);
+
+  cb->args[0] = idx; // 记录进度
+  return (int) skb->len;
+}
+
 static const struct genl_ops tutu_genl_ops[] = {
   /* Config & Stats */
   {.cmd = TUTU_CMD_GET_CONFIG, .doit = tutu_genl_get_config, TUTU_OPS_POLICY},
@@ -310,7 +422,7 @@ static const struct genl_ops tutu_genl_ops[] = {
   {.cmd = TUTU_CMD_GET_STATS, .doit = tutu_genl_get_stats, TUTU_OPS_POLICY},
   {.cmd = TUTU_CMD_CLR_STATS, .doit = tutu_genl_clr_stats, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
 
-  /* Egress - Combined Lookup(doit) and Dump(dumpit) on GET cmd */
+  /* Egress */
   {.cmd    = TUTU_CMD_GET_EGRESS,
    .doit   = tutu_genl_get_egress,
    .dumpit = tutu_genl_dump_egress,
@@ -345,6 +457,11 @@ static const struct genl_ops tutu_genl_ops[] = {
    TUTU_OPS_POLICY},
   {.cmd = TUTU_CMD_DELETE_USER_INFO, .doit = tutu_genl_delete_user_info, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
   {.cmd = TUTU_CMD_UPDATE_USER_INFO, .doit = tutu_genl_update_user_info, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+
+  /* Get/Dump */
+  {.cmd = TUTU_CMD_IFNAME_GET, .dumpit = tutu_genl_ifname_dump, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_IFNAME_ADD, .doit = tutu_genl_ifname_add, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_IFNAME_DEL, .doit = tutu_genl_ifname_del, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
 };
 
 static struct genl_family tutu_genl_family = {.name    = TUTU_GENL_FAMILY_NAME,

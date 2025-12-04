@@ -11,6 +11,10 @@ enum {
   TUTU_EXIST   = 2, /* update existing element */
   TUTU_F_LOCK  = 4, /* spin_lock-ed map_lookup/map_update */
 };
+struct tutu_ifname_node {
+  struct list_head list;
+  char             name[IFNAMSIZ];
+};
 
 struct tutu_config {
   __u32 session_max_age;
@@ -149,6 +153,10 @@ enum {
   TUTU_CMD_DELETE_USER_INFO,
   TUTU_CMD_UPDATE_USER_INFO,
 
+  TUTU_CMD_IFNAME_GET,
+  TUTU_CMD_IFNAME_ADD,
+  TUTU_CMD_IFNAME_DEL,
+
   TUTU_CMD_MAX,
 };
 
@@ -164,6 +172,8 @@ enum {
   TUTU_ATTR_INGRESS,   /* binary: struct tutu_ingress */
   TUTU_ATTR_SESSION,   /* binary: struct tutu_session */
   TUTU_ATTR_USER_INFO, /* binary: struct tutu_user_info */
+
+  TUTU_ATTR_IFNAME_NAME, /* String */
 
   TUTU_ATTR_MAX,
 };
@@ -186,5 +196,8 @@ extern struct tutu_htab *user_map;
 
 int  tutu_genl_init(void);
 void tutu_genl_exit(void);
+
+int ifset_reload_config(void);
+bool net_has_device(const char *dev_name);
 
 // vim: set sw=2 ts=2 expandtab:
