@@ -33,10 +33,6 @@
 LIST_HEAD(tutu_ifname_list);
 DEFINE_MUTEX(tutu_ifname_lock);
 
-static u32 dev_mode = 0400;
-module_param(dev_mode, int, 0);
-MODULE_PARM_DESC(dev_mode, "default device right, default: 0700");
-
 /* Config structure protected by RCU: dynamic bitmap of allowed ifindex */
 struct ifset {
   struct rcu_head rcu;
@@ -1044,13 +1040,6 @@ static struct nf_hook_ops egress_hook_ops = {
   .priority = NF_IP_PRI_LAST,
 };
 
-static dev_t         tutu_devno;
-static struct cdev   tutu_cdev;
-static struct class *tutu_class;
-
-#define DEV_NAME   KBUILD_MODNAME
-#define CLASS_NAME KBUILD_MODNAME
-
 int tutu_export_config(struct tutu_config *out) {
   int                           err = -ENOENT;
   const struct tutu_config_rcu *cfg;
@@ -1129,235 +1118,6 @@ int tutu_clear_stats(void) {
   }
   return 0;
 }
-
-static long ioctl_cmd_get_config(void __user *argp, struct tutu_config *cfg) {
-  int err;
-
-  err = tutu_export_config(cfg);
-  if (err)
-    return err;
-  if (copy_to_user(argp, cfg, sizeof(*cfg))) {
-    return -EFAULT;
-  }
-  return 0;
-}
-
-static long ioctl_cmd_set_config(void __user *argp, struct tutu_config *cfg) {
-  if (copy_from_user(cfg, argp, sizeof(*cfg)))
-    return -EFAULT;
-  return tutu_set_config(cfg);
-}
-
-static long ioctl_cmd_get_stats(void __user *argp, struct tutu_stats *st) {
-  int err;
-
-  err = tutu_export_stats(st);
-  if (err)
-    return err;
-  if (copy_to_user(argp, st, sizeof(*st)))
-    return -EFAULT;
-  return 0;
-}
-
-#define DEFINE_TUTU_IOCTL_FUNCS(_dir, _map, _value_type)                                                                       \
-  static long ioctl_cmd_lookup_##_dir(void __user *argp, struct tutu_##_dir *entry) {                                          \
-    _value_type *value;                                                                                                        \
-    int          err = 0;                                                                                                      \
-                                                                                                                               \
-    if (copy_from_user(entry, argp, sizeof(*entry)))                                                                           \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    rcu_read_lock();                                                                                                           \
-    value = tutu_map_lookup_elem(_map, &entry->key);                                                                           \
-    if (value)                                                                                                                 \
-      memcpy(&entry->value, value, sizeof(entry->value));                                                                      \
-    else                                                                                                                       \
-      err = -ENOENT;                                                                                                           \
-    rcu_read_unlock();                                                                                                         \
-                                                                                                                               \
-    if (err)                                                                                                                   \
-      return err;                                                                                                              \
-                                                                                                                               \
-    if (copy_to_user(argp, entry, sizeof(*entry)))                                                                             \
-      return -EFAULT;                                                                                                          \
-    return 0;                                                                                                                  \
-  }                                                                                                                            \
-                                                                                                                               \
-  static long ioctl_cmd_delete_##_dir(void __user *argp, struct tutu_##_dir *entry) {                                          \
-    int err;                                                                                                                   \
-                                                                                                                               \
-    if (copy_from_user(entry, argp, sizeof(*entry)))                                                                           \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    rcu_read_lock();                                                                                                           \
-    err = tutu_map_delete_elem(_map, &entry->key);                                                                             \
-    rcu_read_unlock();                                                                                                         \
-    return err;                                                                                                                \
-  }                                                                                                                            \
-                                                                                                                               \
-  static long ioctl_cmd_update_##_dir(void __user *argp, struct tutu_##_dir *entry) {                                          \
-    int err;                                                                                                                   \
-                                                                                                                               \
-    if (copy_from_user(entry, argp, sizeof(*entry)))                                                                           \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    rcu_read_lock();                                                                                                           \
-    err = tutu_map_update_elem(_map, &entry->key, &entry->value, entry->map_flags);                                            \
-    rcu_read_unlock();                                                                                                         \
-                                                                                                                               \
-    return err;                                                                                                                \
-  }                                                                                                                            \
-                                                                                                                               \
-  static long ioctl_cmd_get_first_key_##_dir(void __user *argp, struct tutu_##_dir *entry) {                                   \
-    int err;                                                                                                                   \
-                                                                                                                               \
-    if (copy_from_user(entry, argp, sizeof(*entry)))                                                                           \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    rcu_read_lock();                                                                                                           \
-    err = tutu_map_get_next_key(_map, NULL, &entry->key);                                                                      \
-    rcu_read_unlock();                                                                                                         \
-                                                                                                                               \
-    if (err)                                                                                                                   \
-      return err;                                                                                                              \
-                                                                                                                               \
-    if (copy_to_user(argp, entry, sizeof(*entry)))                                                                             \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    return 0;                                                                                                                  \
-  }                                                                                                                            \
-                                                                                                                               \
-  static long ioctl_cmd_get_next_key_##_dir(void __user *argp, struct tutu_##_dir *entry) {                                    \
-    int err;                                                                                                                   \
-                                                                                                                               \
-    if (copy_from_user(entry, argp, sizeof(*entry)))                                                                           \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    rcu_read_lock();                                                                                                           \
-    err = tutu_map_get_next_key(_map, &entry->key, &entry->key);                                                               \
-    rcu_read_unlock();                                                                                                         \
-                                                                                                                               \
-    if (err)                                                                                                                   \
-      return err;                                                                                                              \
-                                                                                                                               \
-    if (copy_to_user(argp, entry, sizeof(*entry)))                                                                             \
-      return -EFAULT;                                                                                                          \
-                                                                                                                               \
-    return 0;                                                                                                                  \
-  }
-
-DEFINE_TUTU_IOCTL_FUNCS(egress, egress_peer_map, struct egress_peer_value)
-DEFINE_TUTU_IOCTL_FUNCS(ingress, ingress_peer_map, struct ingress_peer_value)
-DEFINE_TUTU_IOCTL_FUNCS(session, session_map, struct session_peer_value)
-DEFINE_TUTU_IOCTL_FUNCS(user_info, user_map, struct user_info_peer_value)
-
-static long tutu_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
-  struct tutu_config    cfg       = {};
-  struct tutu_stats     st        = {};
-  struct tutu_egress    egress    = {};
-  struct tutu_ingress   ingress   = {};
-  struct tutu_session   session   = {};
-  struct tutu_user_info user_info = {};
-
-  pr_debug("ioctl stub called, cmd=0x%x, arg=%lu\n", cmd, arg);
-
-  void __user *argp = (void __user *) arg;
-  (void) argp;
-
-  switch (cmd) {
-  case TUTU_GET_CONFIG: {
-    return ioctl_cmd_get_config(argp, &cfg);
-  }
-  case TUTU_SET_CONFIG: {
-    return ioctl_cmd_set_config(argp, &cfg);
-  }
-  case TUTU_GET_STATS: {
-    return ioctl_cmd_get_stats(argp, &st);
-  }
-  case TUTU_CLR_STATS: {
-    return tutu_clear_stats();
-  }
-  case TUTU_LOOKUP_EGRESS: {
-    return ioctl_cmd_lookup_egress(argp, &egress);
-  }
-  case TUTU_DELETE_EGRESS: {
-    return ioctl_cmd_delete_egress(argp, &egress);
-  }
-  case TUTU_UPDATE_EGRESS: {
-    return ioctl_cmd_update_egress(argp, &egress);
-  }
-  case TUTU_GET_FIRST_KEY_EGRESS: {
-    return ioctl_cmd_get_first_key_egress(argp, &egress);
-  }
-  case TUTU_GET_NEXT_KEY_EGRESS: {
-    return ioctl_cmd_get_next_key_egress(argp, &egress);
-  }
-  case TUTU_LOOKUP_INGRESS: {
-    return ioctl_cmd_lookup_ingress(argp, &ingress);
-  }
-  case TUTU_DELETE_INGRESS: {
-    return ioctl_cmd_delete_ingress(argp, &ingress);
-  }
-  case TUTU_UPDATE_INGRESS: {
-    return ioctl_cmd_update_ingress(argp, &ingress);
-  }
-  case TUTU_GET_FIRST_KEY_INGRESS: {
-    return ioctl_cmd_get_first_key_ingress(argp, &ingress);
-  }
-  case TUTU_GET_NEXT_KEY_INGRESS: {
-    return ioctl_cmd_get_next_key_ingress(argp, &ingress);
-  }
-  case TUTU_LOOKUP_SESSION: {
-    return ioctl_cmd_lookup_session(argp, &session);
-  }
-  case TUTU_DELETE_SESSION: {
-    return ioctl_cmd_delete_session(argp, &session);
-  }
-  case TUTU_UPDATE_SESSION: {
-    return ioctl_cmd_update_session(argp, &session);
-  }
-  case TUTU_GET_FIRST_KEY_SESSION: {
-    return ioctl_cmd_get_first_key_session(argp, &session);
-  }
-  case TUTU_GET_NEXT_KEY_SESSION: {
-    return ioctl_cmd_get_next_key_session(argp, &session);
-  }
-  case TUTU_LOOKUP_USER_INFO: {
-    return ioctl_cmd_lookup_user_info(argp, &user_info);
-  }
-  case TUTU_DELETE_USER_INFO: {
-    return ioctl_cmd_delete_user_info(argp, &user_info);
-  }
-  case TUTU_UPDATE_USER_INFO: {
-    return ioctl_cmd_update_user_info(argp, &user_info);
-  }
-  case TUTU_GET_FIRST_KEY_USER_INFO: {
-    return ioctl_cmd_get_first_key_user_info(argp, &user_info);
-  }
-  case TUTU_GET_NEXT_KEY_USER_INFO: {
-    return ioctl_cmd_get_next_key_user_info(argp, &user_info);
-  }
-  }
-
-  return -ENOTTY;
-}
-
-static int tutu_open(struct inode *inode, struct file *file) {
-  pr_debug("device opened\n");
-  return 0;
-}
-
-static int tutu_release(struct inode *inode, struct file *file) {
-  pr_debug("device released\n");
-  return 0;
-}
-
-static const struct file_operations tutu_fops = {
-  .owner          = THIS_MODULE,
-  .open           = tutu_open,
-  .release        = tutu_release,
-  .unlocked_ioctl = tutu_unlocked_ioctl,
-};
 
 typedef bool (*tutu_gc_predicate)(const struct session_key *key, const struct session_value *value, void *ctx);
 
@@ -1460,12 +1220,6 @@ static void tutu_gc_stop(void) {
   gcctx = NULL;
 }
 
-static char *devnode(const struct device *dev, umode_t *mode) {
-  if (mode)
-    *mode = (umode_t) dev_mode;
-  return NULL;
-}
-
 static unsigned int egress_peer_map_size = 1024;
 module_param(egress_peer_map_size, uint, 0400);
 MODULE_PARM_DESC(egress_peer_map_size, "Size for the egress peer map, must be power of 2");
@@ -1516,7 +1270,6 @@ static struct notifier_block g_netdev_notifier = {
 static int __init tutuicmptunnel_module_init(void) {
   int                     err;
   struct tutu_config_rcu *cfg_init;
-  struct device          *dev;
 
   if (!is_power_of_2(egress_peer_map_size) || !is_power_of_2(ingress_peer_map_size) || !is_power_of_2(session_map_size) ||
       egress_peer_map_size < 256 || ingress_peer_map_size < 256 || session_map_size < 256) {
@@ -1581,65 +1334,19 @@ static int __init tutuicmptunnel_module_init(void) {
   }
 
   pr_debug("egress hook registered.\n");
-
-  /* 分配主次设备号 */
-  err = alloc_chrdev_region(&tutu_devno, 0, 1, DEV_NAME);
-  if (err) {
-    pr_err("alloc_chrdev_region failed: %d\n", err);
-    goto err_unreg_egress;
-  }
-
-  /* 初始化并添加 cdev */
-  cdev_init(&tutu_cdev, &tutu_fops);
-  tutu_cdev.owner = THIS_MODULE;
-
-  err = cdev_add(&tutu_cdev, tutu_devno, 1);
-  if (err) {
-    pr_err("cdev_add failed: %d\n", err);
-    goto err_unreg_chrdev;
-  }
-
-  /* 创建 class 与 device，生成 /dev 节点 */
-  tutu_class = class_create(CLASS_NAME);
-  if (IS_ERR(tutu_class)) {
-    err = PTR_ERR(tutu_class);
-    pr_err("class_create failed: %d\n", err);
-    tutu_class = NULL;
-    goto err_cdev_del;
-  }
-
-  tutu_class->devnode = &devnode;
-
-  dev = device_create(tutu_class, NULL, tutu_devno, NULL, DEV_NAME);
-  if (IS_ERR(dev)) {
-    err = PTR_ERR(dev);
-    pr_err("device_create failed: %d\n", err);
-    goto err_class_destroy;
-  }
-
   err = tutu_genl_init();
   if (err)
-    goto err_device_destroy;
+    goto err_unreg_egress;
 
   err = register_netdevice_notifier(&g_netdev_notifier);
   if (err)
     goto err_genl_exit;
 
   tutu_gc_start(1);
-  pr_info("device ready at /dev/%s (major=%d minor=%d)\n", DEV_NAME, MAJOR(tutu_devno), MINOR(tutu_devno));
   return 0;
 
 err_genl_exit:
   tutu_genl_exit();
-err_device_destroy:
-  device_destroy(tutu_class, tutu_devno);
-err_class_destroy:
-  class_destroy(tutu_class);
-  tutu_class = NULL;
-err_cdev_del:
-  cdev_del(&tutu_cdev);
-err_unreg_chrdev:
-  unregister_chrdev_region(tutu_devno, 1);
 err_unreg_egress:
   nf_unregister_net_hook(&init_net, &egress_hook_ops);
 err_unreg_ingress:
@@ -1668,10 +1375,6 @@ static void __exit tutuicmptunnel_module_exit(void) {
   unregister_netdevice_notifier(&g_netdev_notifier);
   cancel_delayed_work_sync(&g_reload_work);
   tutu_genl_exit();
-  device_destroy(tutu_class, tutu_devno);
-  class_destroy(tutu_class);
-  cdev_del(&tutu_cdev);
-  unregister_chrdev_region(tutu_devno, 1);
   nf_unregister_net_hook(&init_net, &egress_hook_ops);
   nf_unregister_net_hook(&init_net, &ingress_hook_ops);
 

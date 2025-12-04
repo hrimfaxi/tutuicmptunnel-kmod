@@ -3,14 +3,13 @@
 #include <linux/ipv6.h>
 #include <linux/types.h>
 
-#define TUTU_IOC_MAGIC 'T'
-
 enum {
   TUTU_ANY     = 0, /* create new element or update existing */
   TUTU_NOEXIST = 1, /* create new element if it didn't exist */
   TUTU_EXIST   = 2, /* update existing element */
   TUTU_F_LOCK  = 4, /* spin_lock-ed map_lookup/map_update */
 };
+
 struct tutu_ifname_node {
   struct list_head list;
   char             name[IFNAMSIZ];
@@ -94,35 +93,6 @@ struct tutu_session {
   struct session_value value;
   __u64                map_flags;
 };
-
-#define TUTU_GET_CONFIG _IOR(TUTU_IOC_MAGIC, 0x01, struct tutu_config)
-#define TUTU_SET_CONFIG _IOW(TUTU_IOC_MAGIC, 0x02, struct tutu_config)
-#define TUTU_GET_STATS  _IOR(TUTU_IOC_MAGIC, 0x03, struct tutu_stats)
-#define TUTU_CLR_STATS  _IO(TUTU_IOC_MAGIC, 0x04)
-
-#define TUTU_LOOKUP_EGRESS        _IOR(TUTU_IOC_MAGIC, 0x05, struct tutu_egress)
-#define TUTU_DELETE_EGRESS        _IOW(TUTU_IOC_MAGIC, 0x06, struct tutu_egress)
-#define TUTU_UPDATE_EGRESS        _IOW(TUTU_IOC_MAGIC, 0x07, struct tutu_egress)
-#define TUTU_GET_FIRST_KEY_EGRESS _IOR(TUTU_IOC_MAGIC, 0x08, struct tutu_egress)
-#define TUTU_GET_NEXT_KEY_EGRESS  _IOR(TUTU_IOC_MAGIC, 0x09, struct tutu_egress)
-
-#define TUTU_LOOKUP_INGRESS        _IOR(TUTU_IOC_MAGIC, 0x0a, struct tutu_ingress)
-#define TUTU_DELETE_INGRESS        _IOW(TUTU_IOC_MAGIC, 0x0b, struct tutu_ingress)
-#define TUTU_UPDATE_INGRESS        _IOW(TUTU_IOC_MAGIC, 0x0c, struct tutu_ingress)
-#define TUTU_GET_FIRST_KEY_INGRESS _IOR(TUTU_IOC_MAGIC, 0x0d, struct tutu_ingress)
-#define TUTU_GET_NEXT_KEY_INGRESS  _IOR(TUTU_IOC_MAGIC, 0x0e, struct tutu_ingress)
-
-#define TUTU_LOOKUP_USER_INFO        _IOR(TUTU_IOC_MAGIC, 0x0f, struct tutu_user_info)
-#define TUTU_DELETE_USER_INFO        _IOW(TUTU_IOC_MAGIC, 0x10, struct tutu_user_info)
-#define TUTU_UPDATE_USER_INFO        _IOW(TUTU_IOC_MAGIC, 0x11, struct tutu_user_info)
-#define TUTU_GET_FIRST_KEY_USER_INFO _IOR(TUTU_IOC_MAGIC, 0x12, struct tutu_user_info)
-#define TUTU_GET_NEXT_KEY_USER_INFO  _IOR(TUTU_IOC_MAGIC, 0x13, struct tutu_user_info)
-
-#define TUTU_LOOKUP_SESSION        _IOR(TUTU_IOC_MAGIC, 0x14, struct tutu_session)
-#define TUTU_DELETE_SESSION        _IOW(TUTU_IOC_MAGIC, 0x15, struct tutu_session)
-#define TUTU_UPDATE_SESSION        _IOW(TUTU_IOC_MAGIC, 0x16, struct tutu_session)
-#define TUTU_GET_FIRST_KEY_SESSION _IOR(TUTU_IOC_MAGIC, 0x17, struct tutu_session)
-#define TUTU_GET_NEXT_KEY_SESSION  _IOR(TUTU_IOC_MAGIC, 0x18, struct tutu_session)
 
 enum {
   TUTU_CMD_UNSPEC,
