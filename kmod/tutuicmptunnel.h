@@ -150,7 +150,7 @@ enum {
 
 #define TUTU_ATTR_MAX (TUTU_ATTR_MAX - 1)
 
-#define TUTU_GENL_FAMILY_NAME "tutu"
+#define TUTU_GENL_FAMILY_NAME "tutuicmptunnel"
 #define TUTU_GENL_VERSION     0x1
 
 int tutu_export_config(struct tutu_config *out);
