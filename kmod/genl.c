@@ -9,8 +9,51 @@
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
 
+/* -1 表示不启用该检查 */
+static int allowed_uid = -1;
+static int allowed_gid = -1;
+
+module_param(allowed_uid, int, 0644);
+MODULE_PARM_DESC(allowed_uid, "Extra allowed euid (int, -1 to disable)");
+
+module_param(allowed_gid, int, 0644);
+MODULE_PARM_DESC(allowed_gid, "Extra allowed egid (int, -1 to disable)");
+
 extern struct list_head tutu_ifname_list;
 extern struct mutex     tutu_ifname_lock;
+
+static bool tutu_user_allowed(const struct sk_buff *skb, const struct genl_info *info) {
+  const struct scm_creds *creds;
+  kuid_t             uid;
+  kgid_t             gid;
+
+  /* 1. 只要有 CAP_NET_ADMIN 就放行（通常是 root 或带该 capability 的服务） */
+  if (ns_capable(current_user_ns(), CAP_NET_ADMIN))
+    return true;
+
+  creds = &NETLINK_CB(skb).creds;
+  uid   = creds->uid;
+  gid   = creds->gid;
+
+  pr_debug("tutu: from pid %u uid %u gid %u\n", creds->pid, __kuid_val(uid), __kgid_val(gid));
+
+  /* 3. 检查 allowed_uid（-1 表示不启用） */
+  if (allowed_uid >= 0) {
+    kuid_t auid = KUIDT_INIT(allowed_uid);
+    if (uid_valid(auid) && uid_eq(uid, auid))
+      return true;
+  }
+
+  /* 4. 检查 allowed_gid（-1 表示不启用） */
+  if (allowed_gid >= 0) {
+    kgid_t agid = KGIDT_INIT(allowed_gid);
+    if (gid_valid(agid) && gid_eq(gid, agid))
+      return true;
+  }
+
+  /* 都不满足，拒绝 */
+  return false;
+}
 
 /*
  * 兼容性处理：
@@ -183,11 +226,14 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
     struct tutu_##_dir entry;                                                                                                  \
     int                err;                                                                                                    \
                                                                                                                                \
+    if (!tutu_user_allowed(skb, info)) {                                                                                       \
+      NL_SET_ERR_MSG(info->extack, "permission denied for this command");                                                      \
+      return -EPERM;                                                                                                           \
+    }                                                                                                                          \
     if (!info->attrs[_attr])                                                                                                   \
       return -EINVAL;                                                                                                          \
     if (nla_len(info->attrs[_attr]) != sizeof(entry))                                                                          \
       return -EINVAL;                                                                                                          \
-                                                                                                                               \
     memcpy(&entry, nla_data(info->attrs[_attr]), sizeof(entry));                                                               \
                                                                                                                                \
     rcu_read_lock();                                                                                                           \
@@ -200,12 +246,14 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
   static int tutu_genl_update_##_dir(struct sk_buff *skb, struct genl_info *info) {                                            \
     struct tutu_##_dir entry;                                                                                                  \
     int                err;                                                                                                    \
-                                                                                                                               \
+    if (!tutu_user_allowed(skb, info)) {                                                                                       \
+      NL_SET_ERR_MSG(info->extack, "permission denied for this command");                                                      \
+      return -EPERM;                                                                                                           \
+    }                                                                                                                          \
     if (!info->attrs[_attr])                                                                                                   \
       return -EINVAL;                                                                                                          \
     if (nla_len(info->attrs[_attr]) != sizeof(entry))                                                                          \
       return -EINVAL;                                                                                                          \
-                                                                                                                               \
     memcpy(&entry, nla_data(info->attrs[_attr]), sizeof(entry));                                                               \
                                                                                                                                \
     rcu_read_lock();                                                                                                           \
@@ -261,6 +309,11 @@ static int tutu_genl_get_config(struct sk_buff *skb, struct genl_info *info) {
 static int tutu_genl_set_config(struct sk_buff *skb, struct genl_info *info) {
   struct tutu_config cfg;
 
+  if (!tutu_user_allowed(skb, info)) {
+    NL_SET_ERR_MSG(info->extack, "permission denied for this command");
+    return -EPERM;
+  }
+
   if (!info->attrs[TUTU_ATTR_CONFIG])
     return -EINVAL;
 
@@ -304,6 +357,11 @@ static int tutu_genl_get_stats(struct sk_buff *skb, struct genl_info *info) {
 }
 
 static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info) {
+  if (!tutu_user_allowed(skb, info)) {
+    NL_SET_ERR_MSG(info->extack, "permission denied for this command");
+    return -EPERM;
+  }
+
   return tutu_clear_stats();
 }
 
@@ -321,6 +379,11 @@ static int tutu_genl_ifname_add(struct sk_buff *skb, struct genl_info *info) {
   struct tutu_ifname_node *node;
   char                    *name;
   int                      err;
+
+  if (!tutu_user_allowed(skb, info)) {
+    NL_SET_ERR_MSG(info->extack, "permission denied for this command");
+    return -EPERM;
+  }
 
   if (!info->attrs[TUTU_ATTR_IFNAME_NAME])
     return -EINVAL;
@@ -361,6 +424,11 @@ static int tutu_genl_ifname_del(struct sk_buff *skb, struct genl_info *info) {
   struct tutu_ifname_node *node, *tmp;
   char                    *name;
   bool                     found = false;
+
+  if (!tutu_user_allowed(skb, info)) {
+    NL_SET_ERR_MSG(info->extack, "permission denied for this command");
+    return -EPERM;
+  }
 
   if (!info->attrs[TUTU_ATTR_IFNAME_NAME])
     return -EINVAL;
@@ -417,9 +485,9 @@ static int tutu_genl_ifname_dump(struct sk_buff *skb, struct netlink_callback *c
 static const struct genl_ops tutu_genl_ops[] = {
   /* Config & Stats */
   {.cmd = TUTU_CMD_GET_CONFIG, .doit = tutu_genl_get_config, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_SET_CONFIG, .doit = tutu_genl_set_config, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_SET_CONFIG, .doit = tutu_genl_set_config, TUTU_OPS_POLICY},
   {.cmd = TUTU_CMD_GET_STATS, .doit = tutu_genl_get_stats, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_CLR_STATS, .doit = tutu_genl_clr_stats, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_CLR_STATS, .doit = tutu_genl_clr_stats, TUTU_OPS_POLICY},
 
   /* Egress */
   {.cmd    = TUTU_CMD_GET_EGRESS,
@@ -427,8 +495,8 @@ static const struct genl_ops tutu_genl_ops[] = {
    .dumpit = tutu_genl_dump_egress,
    .done   = tutu_genl_done_egress,
    TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_DELETE_EGRESS, .doit = tutu_genl_delete_egress, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_UPDATE_EGRESS, .doit = tutu_genl_update_egress, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_DELETE_EGRESS, .doit = tutu_genl_delete_egress, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_UPDATE_EGRESS, .doit = tutu_genl_update_egress, TUTU_OPS_POLICY},
 
   /* Ingress */
   {.cmd    = TUTU_CMD_GET_INGRESS,
@@ -436,8 +504,8 @@ static const struct genl_ops tutu_genl_ops[] = {
    .dumpit = tutu_genl_dump_ingress,
    .done   = tutu_genl_done_ingress,
    TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_DELETE_INGRESS, .doit = tutu_genl_delete_ingress, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_UPDATE_INGRESS, .doit = tutu_genl_update_ingress, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_DELETE_INGRESS, .doit = tutu_genl_delete_ingress, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_UPDATE_INGRESS, .doit = tutu_genl_update_ingress, TUTU_OPS_POLICY},
 
   /* Session */
   {.cmd    = TUTU_CMD_GET_SESSION,
@@ -445,8 +513,8 @@ static const struct genl_ops tutu_genl_ops[] = {
    .dumpit = tutu_genl_dump_session,
    .done   = tutu_genl_done_session,
    TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_DELETE_SESSION, .doit = tutu_genl_delete_session, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_UPDATE_SESSION, .doit = tutu_genl_update_session, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_DELETE_SESSION, .doit = tutu_genl_delete_session, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_UPDATE_SESSION, .doit = tutu_genl_update_session, TUTU_OPS_POLICY},
 
   /* User Info */
   {.cmd    = TUTU_CMD_GET_USER_INFO,
@@ -454,13 +522,13 @@ static const struct genl_ops tutu_genl_ops[] = {
    .dumpit = tutu_genl_dump_user_info,
    .done   = tutu_genl_done_user_info,
    TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_DELETE_USER_INFO, .doit = tutu_genl_delete_user_info, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_UPDATE_USER_INFO, .doit = tutu_genl_update_user_info, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_DELETE_USER_INFO, .doit = tutu_genl_delete_user_info, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_UPDATE_USER_INFO, .doit = tutu_genl_update_user_info, TUTU_OPS_POLICY},
 
   /* Get/Dump */
   {.cmd = TUTU_CMD_IFNAME_GET, .dumpit = tutu_genl_ifname_dump, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_IFNAME_ADD, .doit = tutu_genl_ifname_add, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
-  {.cmd = TUTU_CMD_IFNAME_DEL, .doit = tutu_genl_ifname_del, .flags = GENL_ADMIN_PERM, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_IFNAME_ADD, .doit = tutu_genl_ifname_add, TUTU_OPS_POLICY},
+  {.cmd = TUTU_CMD_IFNAME_DEL, .doit = tutu_genl_ifname_del, TUTU_OPS_POLICY},
 };
 
 static struct genl_family tutu_genl_family = {.name    = TUTU_GENL_FAMILY_NAME,
