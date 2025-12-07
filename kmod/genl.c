@@ -26,11 +26,11 @@ extern struct mutex     tutu_ifname_lock;
 
 static bool tutu_user_allowed(const struct sk_buff *skb, const struct genl_info *info) {
   const struct scm_creds *creds;
-  kuid_t             uid;
-  kgid_t             gid;
+  kuid_t                  uid;
+  kgid_t                  gid;
 
   /* 1. 只要有 CAP_NET_ADMIN 就放行（通常是 root 或带该 capability 的服务） */
-  if (ns_capable(current_user_ns(), CAP_NET_ADMIN))
+  if (netlink_capable(skb, CAP_NET_ADMIN))
     return true;
 
   creds = &NETLINK_CB(skb).creds;
