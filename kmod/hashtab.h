@@ -3,6 +3,8 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
+#include "compat.h"
+
 struct tutu_htab {
   struct hlist_head *buckets;
   raw_spinlock_t     lock;

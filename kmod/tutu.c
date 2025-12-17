@@ -26,6 +26,7 @@
 #include <linux/unaligned.h>
 #endif
 
+#include "compat.h"
 #include "defs.h"
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
@@ -302,9 +303,10 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
     u8  next_hdr           = ipv6->nexthdr;
     u32 local_proto_offset = local_l2_len + offsetof(struct ipv6hdr, nexthdr);
     u32 current_hdr_start  = local_l2_len + sizeof(*ipv6);
+    int i;
 
     /* 遍历扩展头（最多 8 层，避免死循环） */
-    for (int i = 0; i < 8; i++) {
+    for (i = 0; i < 8; i++) {
       struct ipv6_opt_hdr *opt_hdr;
 
       if (!ipv6_ext_hdr(next_hdr))
