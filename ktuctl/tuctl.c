@@ -78,11 +78,13 @@ static int ctrl_cb(const struct nlmsghdr *nlh, void *data) {
 }
 
 static int get_family_id_internal(struct mnl_socket *nl, const char *family_name, int *family_id) {
-  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  char               buf[MNL_SOCKET_BUFFER_SIZE];
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
   uint16_t           id = 0;
   int                err;
+
+  memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 
   nlh              = mnl_nlmsg_put_header(buf);
   nlh->nlmsg_type  = GENL_ID_CTRL;
@@ -136,7 +138,7 @@ err_cleanup:
 
 /* --- 内部辅助：发送简单的 Request (用于 Update/Delete/Set) --- */
 static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len, int flags) {
-  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  char               buf[MNL_SOCKET_BUFFER_SIZE];
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
   int                err;
@@ -144,6 +146,8 @@ static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len,
   if (!g_nl) {
     return -EBADF;
   }
+
+  memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 
   nlh              = mnl_nlmsg_put_header(buf);
   nlh->nlmsg_type  = g_family_id;
@@ -231,6 +235,8 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
     errno = EBADF;
     return -1;
   }
+
+  memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 
   nlh              = mnl_nlmsg_put_header(buf);
   nlh->nlmsg_type  = g_family_id;
@@ -339,11 +345,13 @@ static int dump_cb_internal(const struct nlmsghdr *nlh, void *data) {
 }
 
 static int tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, void *user_data) {
-  char               buf[MNL_SOCKET_BUFFER_SIZE] = {};
+  char               buf[MNL_SOCKET_BUFFER_SIZE];
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
   int                err;
   struct iter_ctx    ctx = {.attr_type = attr_type, .struct_size = size, .user_cb = cb, .user_data = user_data};
+
+  memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 
   nlh              = mnl_nlmsg_put_header(buf);
   nlh->nlmsg_type  = g_family_id;
