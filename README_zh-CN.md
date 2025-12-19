@@ -27,7 +27,7 @@
 
 * 客户端使用三元组 [`UID`, 服务器`IP`, 目标端口（`port`）] 来标识哪些`UDP`包需要被转换为ICMP包。
 * 服务器端则使用三元组 [`UID`, 客户端`IP`, 目标端口（`port`）] 来标识哪些`ICMP`包需要被还原并转发为`UDP`包。
-* `IP`地址可以是`IPv4`或`IPv6`，`tutuicmptunnel`会根据`IP`类型自动选择使用`ICMP`或`ICMPv6`进行封装和转发。
+* `IP`地址可以是`IPv4`或`IPv6`，`tutuicmptunnel-kmod`会根据`IP`类型自动选择使用`ICMP`或`ICMPv6`进行封装和转发。
 
 `tutuicmptunnel-kmod`可以与`WireGuard`、`xray-core`+`kcptun`、`hysteria`等工具搭配使用。
 由于这些软件本身已经具备加密和完整性校验功能，因此`tutuicmptunnel-kmod`不负责数据的加密、混淆和校验，仅负责数据的封装与转发。
@@ -97,19 +97,19 @@ sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
 sudo modprobe tutuicmptunnel
 ```
 
-可以添加参数`ifnames`指定需要启用的接口名字，用逗号分割。如果不指定，将在所有接口上启用`tutuicmptunnel`。
+可以添加参数`ifnames`指定需要启用的接口名字，用逗号分割。如果不指定，将在所有接口上启用`tutuicmptunnel-kmod`。
 有些系统需要设置`force_sw_checksum`参数，详情参见[kmod](kmod/README.md#force_sw_checksum)。
 
 3. 服务器：设置系统服务并启用可选的`tuctl_server`
 
-`tuctl_server`可以帮助客户端控制服务器端的`tutuicmptunnel`配置。
+`tuctl_server`可以帮助客户端控制服务器端的`tutuicmptunnel-kmod`配置。
 
 请完成以下要求：
 * 为防止暴力破解，使用前请记得选一个足够强大的`PSK`口令。最好是使用`uuidgen -r`命令生成。
 * 由于使用了时间戳作为验证，服务器/客户端都需要准确的系统时间。
 
 ```sh
-# 开机自动加载tutuicmptunnel服务并恢复配置
+# 开机自动加载tutuicmptunnel-kmod服务并恢复配置
 sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-server@.service /etc/systemd/system/
 sudo systemctl enable --now tutuicmptunnel-kmod-server@eth0.service # 其中eth0是服务器的网络接口
 
@@ -133,7 +133,7 @@ Peers:
 ....
 ```
 
-也可以不使用`systemd`系统服务手工启动`tutuicmptunnel`为服务器模式：
+也可以不使用`systemd`系统服务手工启动`tutuicmptunnel-kmod`为服务器模式：
 
 ```sh
 sudo modprobe -r tutuicmptunnel # 卸载tutuicmptunnel模块
@@ -145,7 +145,7 @@ sudo ktuctl server-del uid 123 # 删除之前的客户端
 
 4. 可选设置`UID`和主机名映射表
 
-为了便于管理`UID`，`tutuicmptunnel`支持通过映射表`/etc/tutuicmptunnel/uids`将客户端主机名与`UID`进行对应。
+为了便于管理`UID`，`tutuicmptunnel-kmod`支持通过映射表`/etc/tutuicmptunnel/uids`将客户端主机名与`UID`进行对应。
 可以按如下方式创建和编辑该文件：
 
 ```sh
@@ -166,15 +166,15 @@ sudo vim /etc/tutuicmptunnel/uids
 
 设置完成后，在`tuctl`命令中，所有需要指定`UID`(如`uid 0`）的地方，都可以直接使用主机名（如`user alice`）进行替代，使管理更加直观和便捷。
 
-5. 客户端：设置系统服务并启用`tutuicmptunnel`
+5. 客户端：设置系统服务并启用`tutuicmptunnel-kmod`
 
 ```sh
-# 设置tutuicmptunnel开机启动
+# 设置tutuicmptunnel-kmod开机启动
 sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
 sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0 # 假设你上网接口是enp4s0
 ```
 
-现在可以试用下`tutuicmptunnel`：
+现在可以试用下`tutuicmptunnel-kmod`：
 
 ```sh
 export ADDRESS=yourserver.com # 服务器域名或者ip
@@ -221,7 +221,7 @@ Peers:
 
 ## 致谢
 
-`tutuicmptunnel`在设计、实现和性能调优过程中，参考并受益于大量优秀的开源项目和技术文章。谨向它们的作者及社区贡献者致以诚挚感谢！
+`tutuicmptunnel-kmod`在设计、实现和性能调优过程中，参考并受益于大量优秀的开源项目和技术文章。谨向它们的作者及社区贡献者致以诚挚感谢！
 
 * [hysteria](https://github.com/apernet/hysteria)
 * [kcptun](https://github.com/xtaci/kcptun)
