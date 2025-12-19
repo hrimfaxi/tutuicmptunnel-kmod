@@ -1,32 +1,35 @@
-# wireguard
+# WireGuard
 
-`WireGuard`是一个高效且强大的基于`UDP`的`VPN`协议。为了防止流量被`ISP`针对`UDP`进行`QoS`限速或干扰，
-可以使用`tutuicmptunnel-kmod`对`WireGuard`流量进行封装和保护。
+[English](./wireguard.md) | [简体中文](./wireguard_zh-CN.md)
 
-本教程假设你已经拥有一个配置好的 `/etc/wireguard/myserver.conf`，现在将对其进行调整，以启用`tutuicmptunnel-kmod`封装。
+---
 
-已知参数如下：
+`WireGuard` is an efficient and powerful `UDP`-based `VPN` protocol. To prevent traffic from being QoS throttled or interfered with by `ISP`s targeting `UDP`, `tutuicmptunnel-kmod` can be used to encapsulate and protect `WireGuard` traffic.
 
-- **WireGuard 服务端端口**：`9000`
-- **服务器域名**：`myserver.ip`
-- **tuctl_server 端口**：`9010`
-- **tuctl_server PSK 口令**：`verylongpsk`
+This tutorial assumes you already have a configured `/etc/wireguard/myserver.conf`, and will now adjust it to enable `tutuicmptunnel-kmod` encapsulation.
 
-## 部署
+The known parameters are as follows:
 
-首先为你的客户端设备选择一个`uid`和主机名，在我们的例子里是`uid`=`100`，主机名为`a320`。
+- **WireGuard Server Port**: `9000`
+- **Server Domain**: `myserver.ip`
+- **tuctl_server Port**: `9010`
+- **tuctl_server PSK Password**: `verylongpsk`
 
-对服务器和客户端的`/etc/tutuicmptunnel/uids`添加:
+## Deployment
+
+First, choose a `uid` and hostname for your client device. In our example, the `uid` is `100` and the hostname is `a320`.
+
+Add the following to `/etc/tutuicmptunnel/uids` on both the server and client:
 
 ```
 100 a320
 ```
 
-我们推荐在客户端使用 `tuctl_client` 来远程控制服务器上的 `tutuicmptunnel-kmod` 规则。因此，请确保服务器已安装并运行 `tutuicmptunnel-tuctl-server` 系统服务。
+We recommend using `tuctl_client` on the client to remotely control `tutuicmptunnel-kmod` rules on the server. Therefore, please ensure the server has installed and is running the `tutuicmptunnel-tuctl-server` system service.
 
-> 以下操作都在客户端上运行
+> The following operations are performed on the client.
 
-首先，创建环境变量文件: `/etc/wireguard/tutuicmptunnel.myserver`
+First, create the environment variable file: `/etc/wireguard/tutuicmptunnel.myserver`
 
 ```sh
 #!/bin/sh
@@ -39,33 +42,33 @@ PSK=verylongpsk
 COMMENT=myserver-wgserver
 ```
 
-在`WireGuard`配置中，添加如下内容以实现接口启动和关闭时的自动规则管理：
+In the `WireGuard` configuration, add the following content to achieve automatic rule management when the interface starts up and shuts down:
 
 ```ini
 [Interface]
-# 在接口启动前，先添加本地规则
+# Before interface starts, add local rules
 PreUp = env_file=$(dirname $CONFIG_FILE)/tutuicmptunnel.myserver; source $env_file && ktuctl client-add user $TUTU_UID address $ADDR port $PORT comment $COMMENT || true
-# 启动后，通过 tuctl_client 远程添加服务器规则
+# After start, add server rules remotely via tuctl_client
 PreUp = env_file=$(dirname $CONFIG_FILE)/tutuicmptunnel.myserver; source $env_file && IP=$(curl -s ip.3322.net) && tuctl_client server $ADDR server-port $SERVER_PORT psk $PSK <<< "server-add user $TUTU_UID comment $COMMENT address $IP port $PORT" || true
-# 在接口关闭时，删除本地规则
+# When interface shuts down, delete local rules
 PostDown = env_file=$(dirname $CONFIG_FILE)/tutuicmptunnel.myserver; source $env_file && ktuctl client-del user $TUTU_UID address $ADDR || true
-# 接口关闭后，远程删除服务器规则
+# After interface shutdown, delete server rules remotely
 PostDown = env_file=$(dirname $CONFIG_FILE)/tutuicmptunnel.myserver; source $env_file && tuctl_client server $ADDR server-port $SERVER_PORT psk $PSK <<< "server-del user $TUTU_UID" || true
 ```
 
-这样配置后，每次启动`WireGuard`的`myserver`接口时，会自动添加客户端和服务器端的规则；关闭接口时，则会自动删除相关规则。
+With this configuration, every time the `WireGuard` `myserver` interface is started, client and server rules will be automatically added; when the interface is closed, relevant rules will be automatically deleted.
 
-使用`wg-quick`重启接口即可：
+Use `wg-quick` to restart the interface:
 
 ```bash
 sudo wg-quick down myserver
 sudo wg-quick up myserver
 ```
 
-如需排查`ICMP`流量，可用以下命令：
+To troubleshoot `ICMP` traffic, use the following command:
 
 ```bash
 sudo tcpdump -i any -n icmp -v
 ```
 
-> 小提示：启用`tcp_bbr`拥塞控制算法能显著提升`WireGuard`的性能。
+> Tip: Enabling the `tcp_bbr` congestion control algorithm can significantly improve `WireGuard` performance.

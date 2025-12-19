@@ -1,15 +1,19 @@
 # hysteria
 
-## 示例展示
+[English](./hysteria.md) | [简体中文](./hysteria_zh-CN.md)
 
-> 本地 ‑(SOCKS5)→ Hysteria-UDP ‑(ICMP)→ 服务器 \
-> 全部参数均已抽象为占位符，请按实际情况替换，尤其是域名 / 密钥。 \
-> ⚠️ 文档刻意省略了真实 SNI、密码、IP 等敏感信息，请勿在公开场合留下明文。
+---
 
-我们假设你现在有一个可以用的`hysteria`配置，`UDP`端口为`3322`。
-现在你需要使用`tutuicmptunnel-kmod`将流量转变为`ICMP`协议。
+## Example Demonstration
 
-## 依赖
+> Local -(SOCKS5)→ Hysteria-UDP -(ICMP)→ Server \
+> All parameters have been abstracted as placeholders. Please replace them according to your actual situation, especially domains/keys. \
+> ⚠️ The documentation intentionally omits real sensitive information like SNI, passwords, IPs, etc. Do not leave plaintext credentials in public spaces.
+
+We assume you currently have a working `hysteria` configuration with `UDP` port `3322`.
+Now you need to use `tutuicmptunnel-kmod` to transform the traffic into the `ICMP` protocol.
+
+## Dependencies
 
 `Ubuntu`:
 
@@ -23,9 +27,9 @@ sudo apt-get install curl
 sudo pacman -S curl
 ```
 
-## `tutuicmptunnel-kmod`设置
+## `tutuicmptunnel-kmod` Settings
 
-首先要在服务器上为你的客户端设备选好一个`UID`，比如说主机名为`a320`，`UID`为100。
+First, you need to select a `UID` for your client device on the server. For example, let's say the hostname is `a320` and the `UID` is 100.
 
 `/etc/tutuicmptunnel/uids`:
 
@@ -33,12 +37,12 @@ sudo pacman -S curl
 100 a320 # a320
 ```
 
-客户端上也同样添加以上记录到`/etc/tutuicmptunnel/uids`。
+Add the above record to `/etc/tutuicmptunnel/uids` on the client side as well.
 
-## 修改systemd 单元文件
+## Modify Systemd Unit File
 
-注意`tutuicmptunnel-kmod`无法处理`GSO`包，需要关闭`hysteria`的相关功能。
-通过设置环境变量`QUIC_GO_DISABLE_GSO=1`，如下所示：
+Note that `tutuicmptunnel-kmod` cannot handle `GSO` packets, so `hysteria`'s related functionality needs to be disabled.
+Set the environment variable `QUIC_GO_DISABLE_GSO=1` as shown below:
 
 `/etc/systemd/system/hysteria-server@.service`:
 
@@ -51,127 +55,4 @@ After=network.target tutuicmptunnel.service
 Type=simple
 ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/%i.yaml
 DynamicUser=yes
-Environment=HYSTERIA_LOG_LEVEL=info QUIC_GO_DISABLE_GSO=1
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-NoNewPrivileges=true
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 同步客户端`ip`脚本
-
-可以在客户端上使用`tuctl_client`工具来远程修改服务器的`ktuctl`配置，这样客户端公网`IP`切换了也可以通知服务器。
-
-`/usr/local/bin/tutuicmptunnel_sync.sh`:
-
-```bash
-#!/bin/bash
-
-# 本脚本在客户端上运行，通过tuctl_client工具通告服务器客户端配置的更新。
-
-V() {
-  echo "$@"
-  "$@"
-}
-
-TMP=$(mktemp)
-export DEV=eth0 # 你的客户端的上网接口名
-sudo ktuctl dump > $TMP
-sudo rmmod tutuicmptunnel
-sudo modprobe tutuicmptunnel
-
-export TUTU_UID=100 # 替换为你的服务器上选好的uid或用户名
-export ADDRESS=yourdomain.com # 替换为你的hysteria服务器域名或IP
-export PORT=3322 # 替换为你的hysteria服务器udp端口
-
-sudo ktuctl script - < $TMP
-sudo ktuctl client
-sudo ktuctl client-del address $ADDRESS user $TUTU_UID
-sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
-
-export COMMENT=yourdevice # 替换为你的客户端的注释，此注释会在服务器的ktuctl命令上显示
-export HOST=$ADDRESS
-export PSK=yourlongpsk # 替换为你的tuctl_server的PSK口令
-export SERVER_PORT=your_tuserver_port # 替换为你的tuctl_server的端口
-
-# 使用3322.net提供的服务获取本机公网IP，你也可以换成其他服务
-IP=$(curl -s ip.3322.net)
-echo local ip: $IP
-
-echo "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT" | V tuctl_client \
-  psk $PSK \
-  server $HOST \
-  server-port $SERVER_PORT
-
-# vim: set sw=2 ts=2 expandtab:
-```
-
-### 启动`tutuicmptunnel-kmod`
-
-```bash
-
-# 先同步tutuicmptunnel的客户端IP
-/usr/local/bin/tutuicmptunnel_sync.sh
-
-# 再跑 hysteria 客户端
-QUIC_GO_DISABLE_GSO=1 hysteria client -c client.yaml
-```
-
-如果客户端公网`IP`频繁切换，此时需要更新客户端`IP`到服务器。可以添加以上脚本到`crontab`定期运行（每5分钟）：
-
-```
-PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
-*/5 * * * * /usr/local/bin/tutuicmptunnel_sync.sh
-```
-
-或者使用一个`systemd-timer`达到同样目的：
-
-`/etc/systemd/system/tutuicmptunnel_sync.service`:
-
-```ini
-[Unit]
-Description=Sync tutuicmptunnel config
-
-[Service]
-Type=oneshot
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
-ExecStart=/usr/local/bin/tutuicmptunnel_sync.sh
-```
-
-`/etc/systemd/system/tutuicmptunnel_sync.timer`:
-
-```
-[Unit]
-Description=Run tutuicmptunnel_sync every 5 minutes
-
-[Timer]
-OnBootSec=5min
-OnUnitActiveSec=5min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-## 测试
-
-测速：
-
-```bash
-hysteria speedtest -c client.yaml 
-```
-
-查看 ICMP 隧道计数：
-
-```bash
-sudo ktuctl -d
-```
-
-查看是否有icmp包：
-
-```bash
-sudo tcpdump -i any icmp -n -v
-```
+Environment=HYSTERIA_LOG_LEVEL=info QU

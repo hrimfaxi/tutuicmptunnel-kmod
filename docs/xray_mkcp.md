@@ -1,16 +1,20 @@
-# xray+kcptun
+# xray+mKCP
 
-## 概述
+[English](./xray_mkcp.md) | [简体中文](./xray_mkcp_zh-CN.md)
 
-`xray-core` `mKCP` 可替代 `xray-core` + `kcptun` 双进程方案。优势主要是:
+---
 
-- 去除双进程间拷贝与上下文切换开销。
-- `mKCP` 对 `xray-core` 更友好，调度与实现更高效。
-- 原生并发多条 `mKCP` 连接，避免 `KCP` 写头阻塞。
+## Overview
 
-## xray-core配置
+`xray-core` `mKCP` can replace the `xray-core` + `kcptun` dual-process solution. The main advantages are:
 
-服务器配置建议:
+- Eliminates overhead from copying and context switching between dual processes.
+- `mKCP` is more friendly to `xray-core`, with more efficient scheduling and implementation.
+- Natively supports concurrent multiple `mKCP` connections, avoiding `KCP` head-of-line blocking.
+
+## xray-core Configuration
+
+Recommended Server Configuration:
 
 ```json
 "inbounds": [
@@ -53,7 +57,7 @@
 ]
 ```
 
-客户端配置建议:
+Recommended Client Configuration:
 
 ```json
 "outbounds": [
@@ -85,7 +89,7 @@
         "congestion": true,
         "uplinkCapacity": 2,
         "downlinkCapacity": 100,
-        "readBufferSize": 5,   // ≈ server writeBufferSize(3) × 1.5 取整
+        "readBufferSize": 5,   // ≈ ceil(server writeBufferSize(3) × 1.5)
         "writeBufferSize": 1
       },
       "security": "tls",
@@ -101,30 +105,30 @@
 ]
 ```
 
-要点：
+Key Points:
 
-- 容量：`uplinkCapacity` 贴近实际可用上行；`downlinkCapacity` 设较大（如 100），避免下行瓶颈。
-- 服务器 `writeBufferSize` 近似原 `KCP` 的 `sndwnd`，过大可能造成发包洪水，压垮客户端或网络队列。
-- 实测经验：客户端 `readBufferSize ≈ ceil(server writeBufferSize × 1.5)`，在吞吐与时延间更均衡。
-- 其他：根据链路与硬件微调 `mtu`、`tti`、`congestion`，并观察吞吐、`RTT`、丢包和 `CPU` 占用。
-- 建议实际测试 `tti` 值，因为这部分有点反直觉：发送得太快未必会提升性能，反而可能触发 `ICMP` 速率限制，导致效率难以提升。
+- Capacity: Set `uplinkCapacity` close to the actual available uplink; set `downlinkCapacity` larger (e.g., 100) to avoid downlink bottlenecks.
+- Server `writeBufferSize` is roughly equivalent to the `sndwnd` of original `KCP`; setting it too high may cause a packet flood, overwhelming the client or network queues.
+- Practical testing experience: Client `readBufferSize ≈ ceil(server writeBufferSize × 1.5)` balances throughput and latency better.
+- Others: Fine-tune `mtu`, `tti`, and `congestion` based on the link and hardware, and observe throughput, `RTT`, packet loss, and `CPU` usage.
+- It is recommended to test the `tti` value in actual practice, as this part is somewhat counter-intuitive: sending too fast may not necessarily improve performance, but might trigger `ICMP` rate limiting, making it difficult to improve efficiency.
 
-## tutuicmptunnel-kmod配置
+## tutuicmptunnel-kmod Configuration
 
-首先检查服务器/客户端两侧是否有共同的`/etc/tutuicmptunnel/uids`配置:
+First, check if there is a common `/etc/tutuicmptunnel/uids` configuration on both server/client sides:
 
 ```
 123 your_user_name
 ```
 
-然后检查服务器/客户端两侧是否都已经加载`tutuicmptunnel.ko`，并`ktuctl`可以访问设备
+Then check if `tutuicmptunnel.ko` is loaded on both server/client sides and if `ktuctl` can access the device.
 
 ```sh
 sudo lsmod | grep tutuicmptunnel
 sudo ktuctl -d
 ```
 
-使用以下简单脚本在客户端运行,会同步配置到服务器/客户端两侧：
+Run the following simple script on the client to sync the configuration to both server/client sides:
 
 ```sh
 #!/bin/sh
@@ -135,15 +139,15 @@ V() {
 }
 
 TMP=$(mktemp)
-export DEV=enp4s0 # 你的客户端的上网接口名
+export DEV=enp4s0 # Your client's internet interface name
 
 sudo ktuctl dump > $TMP
 sudo rmmod tutuicmptunnel
 sudo modprobe tutuicmptunnel ifnames=$DEV
 
-export TUTU_UID=your_user_name # 替换为你的服务器上选好的uid
-export ADDRESS=yourdomain.com # 替换为你的xray-core服务器域名或IP
-export PORT=1234 # 替换为你的xray-core服务器udp端口
+export TUTU_UID=your_user_name # Replace with the uid chosen on your server
+export ADDRESS=yourdomain.com # Replace with your xray-core server domain or IP
+export PORT=1234 # Replace with your xray-core server udp port
 
 sudo ktuctl script - < $TMP
 rm -f $TMP
@@ -151,12 +155,12 @@ sudo ktuctl client
 sudo ktuctl client-del address $ADDRESS user $TUTU_UID
 sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
 
-export COMMENT=your_client_name # 替换为你的客户端的注释，此注释会在服务器的ktuctl命令上显示
+export COMMENT=your_client_name # Replace with your client comment; this will appear in the server's ktuctl command output
 export HOST=$ADDRESS
-export PSK=yourlongpsk # 替换为你的tuctl_server的PSK口令
-export SERVER_PORT=14801 # 替换为你的tuctl_server的端口
+export PSK=yourlongpsk # Replace with your tuctl_server PSK password
+export SERVER_PORT=14801 # Replace with your tuctl_server port
 
-# 使用3322.net的ip api服务器获取本机公网IP，你也可以换成其他服务
+# Use 3322.net's ip api server to get the local public IP, or you can switch to another service
 IP=$(curl -sf ip.3322.net)
 echo local ip: $IP
 
@@ -168,13 +172,13 @@ server-port $SERVER_PORT
 # vim: set sw=2 ts=2 expandtab:
 ```
 
-启动`xray-core`客户端前运行脚本即可。你也可以在`xray-core`的`systemd`单元文件中添加`ExecStartPre`自动运行这个脚本。
-这样就不必每次都运行脚本了。
+Just run the script before starting the `xray-core` client. You can also add `ExecStartPre` to the `xray-core` `systemd` unit file to run this script automatically.
+This way, you don't have to run the script every time.
 
-## 开机自启
+## Enable on Boot
 
-参见[hysteria](hysteria.md)，可以定期使用`crontab`或者`systemd-timer`调用以上脚本。
+See [hysteria](hysteria.md). You can invoke the above script periodically using `crontab` or `systemd-timer`.
 
-## 参见
+## See Also
 
-- [xray-core mkcp说明](https://xtls.github.io/en/config/transports/mkcp.html)
+- [xray-core mkcp documentation](https://xtls.github.io/en/config/transports/mkcp.html)
