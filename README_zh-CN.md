@@ -97,7 +97,6 @@ sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
 sudo modprobe tutuicmptunnel
 ```
 
-可以添加参数`ifnames`指定需要启用的接口名字，用逗号分割。如果不指定，将在所有接口上启用`tutuicmptunnel-kmod`。
 有些系统需要设置`force_sw_checksum`参数，详情参见[kmod](kmod/README.md#force_sw_checksum)。
 
 3. 服务器：设置系统服务并启用可选的`tuctl_server`
