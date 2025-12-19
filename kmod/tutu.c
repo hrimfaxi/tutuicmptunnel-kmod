@@ -272,32 +272,35 @@ static void ipv6_copy(struct in6_addr *dst, const struct in6_addr *src) {
 static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip_len, u8 *ip_proto, u32 *ip_proto_offset,
                          u32 *hdr_len) {
   u32 local_l2_len = skb_network_offset(skb);
+  int err          = -EINVAL;
 
   /* 初始化输出参数 */
   *ip_type = *l2_len = *ip_len = *ip_proto_offset = *hdr_len = *ip_proto = 0;
 
   if (skb->protocol == htons(ETH_P_IP)) {
     if (!pskb_may_pull(skb, local_l2_len + sizeof(struct iphdr)))
-      return -EINVAL;
+      return err;
     const struct iphdr *iph          = ip_hdr(skb);
     u32                 local_ip_len = iph->ihl * 4;
 
     if (local_ip_len < sizeof(*iph))
-      return -EINVAL;
+      return err;
 
     if (!pskb_may_pull(skb, local_l2_len + local_ip_len))
-      return -EINVAL;
+      return err;
 
+    iph              = ip_hdr(skb);
     *ip_type         = 4;
     *ip_proto        = iph->protocol;
     *ip_len          = local_ip_len;
     *l2_len          = local_l2_len;
     *hdr_len         = local_l2_len + local_ip_len;
     *ip_proto_offset = local_l2_len + offsetof(struct iphdr, protocol);
-    return 0;
+
+    err = 0;
   } else if (skb->protocol == htons(ETH_P_IPV6)) {
     if (!pskb_may_pull(skb, local_l2_len + sizeof(struct ipv6hdr)))
-      return -EINVAL;
+      return err;
     const struct ipv6hdr *ipv6 = ipv6_hdr(skb);
 
     u8  next_hdr           = ipv6->nexthdr;
@@ -313,7 +316,7 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
         break;
 
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
-        return -EINVAL;
+        return err;
 
       opt_hdr = (typeof(opt_hdr)) (skb->data + current_hdr_start);
 
@@ -329,10 +332,10 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
     *l2_len          = local_l2_len;
     *hdr_len         = current_hdr_start;
     *ip_proto_offset = local_proto_offset;
-    return 0;
+    err              = 0;
   }
 
-  return -EINVAL; /* 其他协议 */
+  return err;
 }
 
 // 从icmp头部生成检验和，跳过了checksum本身（视为0)
