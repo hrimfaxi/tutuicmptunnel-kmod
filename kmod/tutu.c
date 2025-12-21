@@ -430,7 +430,7 @@ static int force_sw_checksum = 0;
 module_param(force_sw_checksum, int, 0644);
 MODULE_PARM_DESC(force_sw_checksum, "Force software checksum calculation for all ICMP packets");
 
-static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_len, u32 ip_proto_offset, u32 l4_offset) {
+static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_hdr_len, u32 ip_proto_offset, u32 l4_offset) {
   const u8 ip_proto = skb->data[ip_proto_offset];
   int      err;
 
@@ -438,7 +438,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
     if (force_sw_checksum || skb->ip_summed == CHECKSUM_NONE) {
       struct iphdr   *iph      = ip_hdr(skb);
       struct icmphdr *icmph    = (typeof(icmph)) (skb->data + l4_offset);
-      size_t          icmp_len = ntohs(iph->tot_len) - ip_len;
+      size_t          icmp_len = ntohs(iph->tot_len) - ip_hdr_len;
 
       icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
 
@@ -457,11 +457,10 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
       skb->csum_offset = offsetof(struct icmphdr, checksum);
     }
   } else if (ip_type == 6 && ip_proto == IPPROTO_ICMPV6) {
-    struct ipv6hdr  *ip6h   = ipv6_hdr(skb);
-    struct icmp6hdr *icmp6h = (typeof(icmp6h)) (skb->data + l4_offset);
-    // skb_network_offset(skb) == l2_len
-    unsigned int ext_hdr_len = l4_offset - l2_len - sizeof(struct ipv6hdr);
-    unsigned int icmp_len    = ntohs(ip6h->payload_len) - ext_hdr_len;
+    struct ipv6hdr  *ip6h        = ipv6_hdr(skb);
+    struct icmp6hdr *icmp6h      = (typeof(icmp6h)) (skb->data + l4_offset);
+    unsigned int     ext_hdr_len = ip_hdr_len - sizeof(struct ipv6hdr);
+    unsigned int     icmp_len    = ntohs(ip6h->payload_len) - ext_hdr_len;
 
     icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
 
@@ -545,7 +544,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     goto err_cleanup;
   }
 
-  u32 ip_end = 0, ip_proto_offset = 0, l2_len, ip_len, ip_type;
+  u32 ip_end = 0, ip_proto_offset = 0, l2_len, ip_hdr_len, ip_type;
   u8  ip_proto;
 
   {
@@ -558,10 +557,10 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     }
   }
 
-  try2_ok(parse_headers(skb, &ip_type, &l2_len, &ip_len, &ip_proto, &ip_proto_offset, &ip_end));
+  try2_ok(parse_headers(skb, &ip_type, &l2_len, &ip_hdr_len, &ip_proto, &ip_proto_offset, &ip_end));
 #if 0
-  pr_debug("parse headers: ip_type: %d, l2_len: %d, ip_len: %d, ip_proto: %d, ip_proto_offset: %d, ip_end: %d\n", ip_type,
-          l2_len, ip_len, ip_proto, ip_proto_offset, ip_end);
+  pr_debug("parse headers: ip_type: %d, l2_len: %d, ip_hdr_len: %d, ip_proto: %d, ip_proto_offset: %d, ip_end: %d\n", ip_type,
+          l2_len, ip_hdr_len, ip_proto, ip_proto_offset, ip_end);
 #endif
   try2_ok(ip_proto == IPPROTO_UDP ? 0 : -1);
   // 重新pull 整个以太网+ip头部+udp头部
@@ -765,7 +764,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   // ipv4: 如果是硬件offload：设置csum_offset为icmphdr->checksum位置。不需要修改csum_start，继续硬件offload
   // ipv4: 如果是软件计算: 重新算整个icmp的检验和，停止硬件计算
   // ipv6: 重新算整个icmpv6的检验和，停止硬件计算
-  err = skb_change_type(skb, ip_type, l2_len, ip_len, ip_proto_offset, ip_end);
+  err = skb_change_type(skb, ip_type, l2_len, ip_hdr_len, ip_proto_offset, ip_end);
   (void) err;
 
   {
@@ -825,7 +824,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     goto err_cleanup;
   }
 
-  u32 ip_end = 0, ip_proto_offset = 0, l2_len, ip_len, ip_type;
+  u32 ip_end = 0, ip_proto_offset = 0, l2_len, ip_hdr_len, ip_type;
   u8  ip_proto;
 
   {
@@ -838,10 +837,10 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     }
   }
 
-  try2_ok(parse_headers(skb, &ip_type, &l2_len, &ip_len, &ip_proto, &ip_proto_offset, &ip_end));
+  try2_ok(parse_headers(skb, &ip_type, &l2_len, &ip_hdr_len, &ip_proto, &ip_proto_offset, &ip_end));
 #if 0
-  pr_debug("parse headers: ip_type: %d, l2_len: %d, ip_len: %d, ip_proto: %d, ip_proto_offset: %d, ip_end: %d\n", ip_type,
-          l2_len, ip_len, ip_proto, ip_proto_offset, ip_end);
+  pr_debug("parse headers: ip_type: %d, l2_len: %d, ip_hdr_len: %d, ip_proto: %d, ip_proto_offset: %d, ip_end: %d\n", ip_type,
+          l2_len, ip_hdr_len, ip_proto, ip_proto_offset, ip_end);
 #endif
   try2_ok((ip_proto == IPPROTO_ICMP || ip_proto == IPPROTO_ICMPV6) ? 0 : -1);
   // 重新pull 整个以太网+ip头部+icmp/icmp6头部
@@ -863,7 +862,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
 
   {
     // 至少应该有l3头部长度再加上icmp头部
-    u32 least_size = ip_len + sizeof(struct icmphdr);
+    u32 least_size = ip_hdr_len + sizeof(struct icmphdr);
 
     // 检查ipv4/ipv6报文长度是否合理
     if (ipv4) {
@@ -874,7 +873,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
       }
     } else if (ipv6) {
       // 守护
-      if (ip_len < sizeof(struct ipv6hdr)) {
+      if (ip_hdr_len < sizeof(struct ipv6hdr)) {
         err = NF_ACCEPT;
         goto err_cleanup;
       }
@@ -985,10 +984,10 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   u16 payload_len = 0;
 
   if (ipv4) {
-    payload_len = ntohs(ipv4->tot_len) - ip_len - sizeof(struct icmphdr);
+    payload_len = ntohs(ipv4->tot_len) - ip_hdr_len - sizeof(struct icmphdr);
   } else if (ipv6) {
     // 先还原出IPv6包的物理总长(包含基本头)，再减去已解析的L3头和ICMPv6头
-    payload_len = sizeof(struct ipv6hdr) + ntohs(ipv6->payload_len) - ip_len - sizeof(struct icmp6hdr);
+    payload_len = sizeof(struct ipv6hdr) + ntohs(ipv6->payload_len) - ip_hdr_len - sizeof(struct icmp6hdr);
   }
 
   // Create a UDP header in place of the ICMP header
