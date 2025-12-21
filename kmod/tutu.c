@@ -260,41 +260,41 @@ static void ipv6_copy(struct in6_addr *dst, const struct in6_addr *src) {
  *  - skb: 指向 skb 上下文的指针。
  *  - ip_type: [输出] ip协议类型: 4或者6
  *  - l2_len: [输出] L2 头部长度。
- *  - ip_len: [输出] L3 头部长度 (IPv4 或 IPv6 + 扩展头)。
+ *  - ip_hdr_len: [输出] L3 头部长度 (IPv4 或 IPv6 + 扩展头)。
  *  - ip_proto: [输出] L4 协议的值 (例如 IPPROTO_UDP)。
  *  - ip_proto_offset: [输出] 指向L4协议的字段(ip.protocol或最后一个ipv6.nexthdr)的偏移量，从数据包起始计算。
- *  - hdr_len: [输出] 从数据包开始到 L4 头部起始位置的总偏移量 (l2_len + ip_len)。
+ *  - hdr_len: [输出] 从数据包开始到 L4 头部起始位置的总偏移量 (l2_len + ip_hdr_len)。
  *
  * 返回值:
  *  - 0: 成功。
  *  - -1: 失败（包太短、未知协议等）。
  */
-static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip_len, u8 *ip_proto, u32 *ip_proto_offset,
+static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip_hdr_len, u8 *ip_proto, u32 *ip_proto_offset,
                          u32 *hdr_len) {
   u32 local_l2_len = skb_network_offset(skb);
   int err          = -EINVAL;
 
   /* 初始化输出参数 */
-  *ip_type = *l2_len = *ip_len = *ip_proto_offset = *hdr_len = *ip_proto = 0;
+  *ip_type = *l2_len = *ip_hdr_len = *ip_proto_offset = *hdr_len = *ip_proto = 0;
 
   if (skb->protocol == htons(ETH_P_IP)) {
     if (!pskb_may_pull(skb, local_l2_len + sizeof(struct iphdr)))
       return err;
-    const struct iphdr *iph          = ip_hdr(skb);
-    u32                 local_ip_len = iph->ihl * 4;
+    const struct iphdr *iph              = ip_hdr(skb);
+    u32                 local_ip_hdr_len = iph->ihl * 4;
 
-    if (local_ip_len < sizeof(*iph))
+    if (local_ip_hdr_len < sizeof(*iph))
       return err;
 
-    if (!pskb_may_pull(skb, local_l2_len + local_ip_len))
+    if (!pskb_may_pull(skb, local_l2_len + local_ip_hdr_len))
       return err;
 
     iph              = ip_hdr(skb);
     *ip_type         = 4;
     *ip_proto        = iph->protocol;
-    *ip_len          = local_ip_len;
+    *ip_hdr_len      = local_ip_hdr_len;
     *l2_len          = local_l2_len;
-    *hdr_len         = local_l2_len + local_ip_len;
+    *hdr_len         = local_l2_len + local_ip_hdr_len;
     *ip_proto_offset = local_l2_len + offsetof(struct iphdr, protocol);
 
     err = 0;
@@ -324,11 +324,14 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
       local_proto_offset = current_hdr_start + offsetof(struct ipv6_opt_hdr, nexthdr);
       next_hdr           = opt_hdr->nexthdr;
       current_hdr_start += (opt_hdr->hdrlen + 1) << 3;
+      // 守护
+      if (current_hdr_start > skb->len)
+        return -EINVAL;
     }
 
     *ip_type         = 6;
     *ip_proto        = next_hdr;
-    *ip_len          = current_hdr_start - local_l2_len;
+    *ip_hdr_len      = current_hdr_start - local_l2_len;
     *l2_len          = local_l2_len;
     *hdr_len         = current_hdr_start;
     *ip_proto_offset = local_proto_offset;
@@ -571,6 +574,12 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     goto err_cleanup;
   }
 
+  // 非法的udp长度
+  if (ntohs(udp->len) < sizeof(*udp)) {
+    err = NF_ACCEPT;
+    goto err_cleanup;
+  }
+
   struct iphdr   *ipv4 = NULL;
   struct ipv6hdr *ipv6 = NULL;
 
@@ -591,12 +600,12 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   if (ipv4) {
     // UDP payload length
     u16 udp_payload_len = ntohs(udp->len) - sizeof(*udp);
-    pr_debug("Outgoing UDP: %pI4:%5d -> %pI4:%5d, length: %u\n", &ipv4->saddr, htons(udp->source), &ipv4->daddr,
-             htons(udp->dest), udp_payload_len);
+    pr_debug("Outgoing UDP: %pI4:%5d -> %pI4:%5d, length: %u\n", &ipv4->saddr, ntohs(udp->source), &ipv4->daddr,
+             ntohs(udp->dest), udp_payload_len);
   } else if (ipv6) {
     u16 udp_payload_len = ntohs(udp->len) - sizeof(*udp);
-    pr_debug("Outgoing UDP: %pI6:%5u -> %pI6:%5u, length: %u\n", &ipv6->saddr, htons(udp->source), &ipv6->daddr,
-             htons(udp->dest), udp_payload_len);
+    pr_debug("Outgoing UDP: %pI6:%5u -> %pI6:%5u, length: %u\n", &ipv6->saddr, ntohs(udp->source), &ipv6->daddr,
+             ntohs(udp->dest), udp_payload_len);
   }
 
   if (cfg->is_server) {
@@ -852,6 +861,32 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     goto err_cleanup;
   }
 
+  {
+    // 至少应该有l3头部长度再加上icmp头部
+    u32 least_size = ip_len + sizeof(struct icmphdr);
+
+    // 检查ipv4/ipv6报文长度是否合理
+    if (ipv4) {
+      // IPv4: icmp报文全长必须足够
+      if (ntohs(ipv4->tot_len) < least_size) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+    } else if (ipv6) {
+      // 守护
+      if (ip_len < sizeof(struct ipv6hdr)) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+      // IPV6的payload_len: 不包括基本头部的剩余数据包长度
+      // 加上ipv6头部后必须足够
+      if (sizeof(struct ipv6hdr) + ntohs(ipv6->payload_len) < least_size) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+    }
+  }
+
   // 由于icmp和icmp6hdr大小相等，而且前4字节完全等价，我们使用icmphdr作为表示icmp头部的类型
   struct icmphdr *icmp = (typeof(icmp)) (skb->data + ip_end);
   _Static_assert(sizeof(struct icmphdr) == sizeof(struct icmp6hdr), "ICMP and ICMPv6 header sizes must match");
@@ -952,8 +987,8 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   if (ipv4) {
     payload_len = ntohs(ipv4->tot_len) - ip_len - sizeof(struct icmphdr);
   } else if (ipv6) {
-    // ip_len需要减去ipv6头部,因为ipv6的长度是负载长度(不包括ipv6头)
-    payload_len = ntohs(ipv6->payload_len) - (ip_len - sizeof(struct ipv6hdr)) - sizeof(struct icmp6hdr);
+    // 先还原出IPv6包的物理总长(包含基本头)，再减去已解析的L3头和ICMPv6头
+    payload_len = sizeof(struct ipv6hdr) + ntohs(ipv6->payload_len) - ip_len - sizeof(struct icmp6hdr);
   }
 
   // Create a UDP header in place of the ICMP header
