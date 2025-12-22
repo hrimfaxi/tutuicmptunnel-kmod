@@ -7,59 +7,98 @@
 
 ## 环境准备
 
-需要下载路由器品牌对应的`openwrt-sdk`和`openwrt-toolchain`包，比如你是小米路由器ax3000t，就到
-[小米ax3000t固件下载页面](https://downloads.openwrt.org/releases/24.10.3/targets/mediatek/filogic/)
+需要下载路由器品牌对应的`openwrt-sdk`包，比如你是小米路由器ax3000t，就到
+[小米ax3000t固件下载页面](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/)
 页面下方下载：
-- [openwrt-sdk](https://downloads.openwrt.org/releases/24.10.3/targets/mediatek/filogic/openwrt-sdk-24.10.3-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst)
-- [openwrt-toolchain](https://downloads.openwrt.org/releases/24.10.3/targets/mediatek/filogic/openwrt-toolchain-24.10.3-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst)
+- [openwrt-sdk](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst)
 
-然后解压到`~/temp`目录。
+然后解压到`$HOME/temp`目录。
 
 ## 交叉编译
 
 以下是在`aarch64`架构的`openwrt`下的交叉编译方法。
 
-首先需要构建`libsodium`:
-
 ```bash
-export STAGING_DIR=${HOME}/temp/openwrt-sdk-24.10.3-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64/staging_dir
+export STAGING_DIR=${HOME}/temp/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64/staging_dir
+export TOOLCHAIN_GLOB=$STAGING_DIR/toolchain-*
+export TARGETROOT_GLOB=$STAGING_DIR/target-*
+export TOOLCHAIN=( $TOOLCHAIN_GLOB )
+export TARGETROOT=( $TARGETROOT_GLOB )
+export KERNEL_DIR_GLOB=$STAGING_DIR/../build_dir/target-*/linux-*/linux-*
+export KERNEL_DIR=( $KERNEL_DIR_GLOB )
+export ARCH=aarch64
+export CC=${TOOLCHAIN}/bin/$ARCH-openwrt-linux-gcc
+export LIBSODIUM_TAG=1.0.20-RELEASE
+export KERNEL_ARCH=arm64
+
+echo ================================================================================
+echo "TOOLCHAIN:  ${TOOLCHAIN}"
+echo "TARGETROOT: ${TARGETROOT}"
+echo "KERNEL_DIR:  ${KERNEL_DIR}"
+echo "CC:  ${CC}"
+echo ================================================================================
+
+# 编译`libsodium`
 git clone https://github.com/jedisct1/libsodium.git
 cd libsodium
-git checkout # 选择一个最新的稳定版发布
+git checkout $LIBSODIUM_TAG # 选择一个最新的稳定版发布
 ./autogen.sh
-./configure --host=aarch64-openwrt-linux \
-  CC=$STAGING_DIR/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/bin/aarch64-openwrt-linux-gcc
+./configure --host=$ARCH-openwrt-linux \
+  CC=${TOOLCHAIN}/bin/$ARCH-openwrt-linux-gcc
 make -j $(nproc)
-```
 
-```bash
+# 编译`libmnl`
+cd ..
+git clone https://github.com/justmirror/libmnl
+cd libmnl
+./autogen.sh
+./configure \
+  --host=$ARCH-openwrt-linux \
+  --prefix=/usr \
+  --exec-prefix=/usr \
+  CC=${TOOLCHAIN}/bin/$ARCH-openwrt-linux-gcc \
+  CFLAGS="--sysroot=${TARGETROOT} -O2 -pipe" \
+  LDFLAGS="--sysroot=${TARGETROOT} -Wl,--gc-sections"
+
+make V=1 clean all
+make V=1 DESTDIR=${TARGETROOT} install
+
+# 编译`tutuicmptunnel-kmod`
 cd ..
 git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod.git
 cd tutuicmptunnel-kmod
 rm -f CMakeCache.txt
-cmake -DENABLE_HARDEN_MODE=1 \
-      -DCMAKE_TOOLCHAIN_FILE=$(pwd)/toolchains/openwrt-aarch64.cmake \
-      -DSODIUM_INCLUDE_DIR=$(pwd)/../libsodium/src/libsodium/include \
-      -DSODIUM_LIBRARY=$(pwd)/../libsodium/src/libsodium/.libs/libsodium.so \
-      .
-make VERBOSE=1 clean all
-make install/strip DESTDIR=stripped
 
-# 编译内核模块（示例内核源码路径请替换）
+export STAGING_DIR_HOST="$STAGING_DIR/host"
+export PKG_CONFIG_LIBDIR="$TARGETROOT/usr/lib/pkgconfig"
+export PKG_CONFIG="$STAGING_DIR_HOST/bin/pkg-config"
+export PATH="$STAGING_DIR_HOST/bin:$PATH"
+
+cmake \
+  -DCMAKE_TOOLCHAIN_FILE=$(pwd)/toolchains/openwrt-$ARCH.cmake \
+  -DBISON_EXECUTABLE=/usr/bin/bison \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_HARDEN_MODE=ON \
+  -DSODIUM_INCLUDE_DIR=$(pwd)/../libsodium/src/libsodium/include -DSODIUM_LIBRARY=$(pwd)/../libsodium/src/libsodium/.libs/libsodium.so \
+  .
+make VERBOSE=1 clean all
+make install DESTDIR=stripped
+
+# 编译内核模块
 make \
-     KSRC=$STAGING_DIR/../build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.104 \
-     CROSS_COMPILE=$STAGING_DIR/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/bin/aarch64-openwrt-linux- \
-     ARCH=arm64 \
-     -C kmod
+  KSRC=$KERNEL_DIR \
+  CROSS_COMPILE=${TOOLCHAIN}/bin/$ARCH-openwrt-linux- \
+  ARCH=$KERNEL_ARCH \
+  -C kmod
 ```
 
 最后复制库到`openwrt`设备：
 
-```
+```bash
 scp stripped/usr/local/bin/tuctl* router:/usr/bin/
 scp stripped/usr/local/sbin/ktuctl router:/usr/sbin/
 scp ../libsodium/src/libsodium/.libs/libsodium.so router:/usr/lib/
-scp kmod/tutuicmptunnel.ko router:/lib/modules/6.6.104/
+scp kmod/tutuicmptunnel.ko router:/lib/modules/6.6.119/
 ```
 
 `ssh`到`openwrt`设备，设置开机启动模块:
