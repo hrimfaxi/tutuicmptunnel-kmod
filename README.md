@@ -216,6 +216,7 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
 | [hysteria](docs/hysteria.md)              | A proxy tool based on the QUIC protocol, optimized for unstable and high-loss networks.                  |
 | [xray+kcptun](docs/xray_kcptun.md)        | A combination of the Xray core and the KCPtun protocol, used to accelerate and stabilize network connections. |
 | [xray+mkcp](docs/xray_mkcp.md)            | Xray core with its native mKCP implementation, used to accelerate and stabilize network connections. |
+| [xray+dns](docs/xray_dns.md)            | Forward DNS queries via xray-core (dokodemo-door) on a VPS, with UDP encapsulated into ICMP on OpenWrt  |
 | [wireguard](docs/wireguard.md)            | A modern, high-performance, and easy-to-configure secure VPN tunnel.                                     |
 | [openwrt](docs/openwrt.md)                | A highly customizable Linux operating system for embedded devices, especially routers.                   |
 | [mosh](docs/mosh.md)                      | Roaming shell over UDP, launched via SSH; supports reconnection                                                |
