@@ -1,5 +1,9 @@
 ## Overview
 
+[English](./xray_dns.md) | [简体中文](./xray_dns_zh-CN.md)
+
+---
+
 Forward DNS queries on a VPS to `8.8.8.8` via **xray-core** `dokodemo-door`, and on the OpenWrt side use **tutuicmptunnel-kmod** to encapsulate UDP DNS queries into ICMP, reducing the chance of DPI interference and DNS poisoning. Use **iptables** to redirect inbound `53/UDP` to local `5353/UDP` to avoid conflicts with `systemd-resolved` occupying port 53.
 
 ## Topology & Approach
