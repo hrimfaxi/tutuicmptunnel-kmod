@@ -16,7 +16,7 @@
 
 ## 自动编译
 
-参见[openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/tutuicmptunnel-kmod)
+参见[openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/openwrt-tutuicmptunnel-kmod)
 
 ## 手工交叉编译
 
