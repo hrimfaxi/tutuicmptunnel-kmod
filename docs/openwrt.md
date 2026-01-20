@@ -18,7 +18,11 @@ and download the following files from the bottom of the page:
 
 Then extract them to the `$HOME/temp` directory.
 
-## Cross-Compilation
+## Automatic Compilation
+
+See [openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/openwrt-tutuicmptunnel-kmod)
+
+## Manual Cross-Compilation
 
 The following is the cross-compilation method for `OpenWrt` on `aarch64` architecture.
 

@@ -14,7 +14,11 @@
 
 然后解压到`$HOME/temp`目录。
 
-## 交叉编译
+## 自动编译
+
+参见[openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/tutuicmptunnel-kmod)
+
+## 手工交叉编译
 
 以下是在`aarch64`架构的`openwrt`下的交叉编译方法。
 
