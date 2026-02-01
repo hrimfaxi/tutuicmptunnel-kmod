@@ -53,7 +53,7 @@
 依赖准备:
 
 ```sh
-sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r) flex bison libmnl-dev
+sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r) flex bison libmnl-dev cmake pkg-config
 ```
 
 ### `Arch Linux`
@@ -63,7 +63,7 @@ sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname
 依赖准备:
 
 ```sh
-sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl
+sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl cmake pkg-config
 ```
 
 ### `Openwrt`

@@ -57,7 +57,7 @@ Version: At least 20.04, with version 24.04 LTS or newer recommended.
 Dependencies:
 
 ```sh
-sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r) flex bison libmnl-dev
+sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r) flex bison libmnl-dev cmake pkg-config
 ```
 
 ### `Arch Linux`
@@ -67,7 +67,7 @@ Version: Latest is sufficient
 Dependency Preparation:
 
 ```sh
-sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl
+sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl cmake pkg-config
 ```
 ### `Openwrt`
 
