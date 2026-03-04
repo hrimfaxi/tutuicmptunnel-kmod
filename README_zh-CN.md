@@ -213,6 +213,7 @@ Peers:
 | :--- | :--- |
 | [iperf3](docs/iperf3.md) | 一款强大的网络性能测试工具，用于测量带宽、抖动和丢包。 |
 | [hysteria](docs/hysteria.md) | 基于 QUIC 协议的代理工具，专为不稳定和高丢包网络优化。 |
+| [shadowquic](docs/shadowquic.md) | 基于 rust和QUIC 协议的代理工具，专为不稳定和高丢包网络优化。 |
 | [xray+kcptun](docs/xray_kcptun.md) | Xray 核心与 KCPtun 协议的组合，用于加速和稳定网络连接。 |
 | [xray+mkcp](docs/xray_mkcp.md) | Xray 核心与自带的mKCP实现，用于加速和稳定网络连接。 |
 | [xray+dns](docs/xray_dns.md)            | 在 VPS 上用 xray-core（dokodemo-door）转发 DNS，并在 OpenWrt 侧将 UDP 封装为 ICMP 传输 |
@@ -225,6 +226,7 @@ Peers:
 `tutuicmptunnel-kmod`在设计、实现和性能调优过程中，参考并受益于大量优秀的开源项目和技术文章。谨向它们的作者及社区贡献者致以诚挚感谢！
 
 * [hysteria](https://github.com/apernet/hysteria)
+* [shadowquic](https://github.com/spongebob888/shadowquic)
 * [kcptun](https://github.com/xtaci/kcptun)
 * [xray-core](https://github.com/XTLS/Xray-core)
 * [udp2raw](https://github.com/wangyu-/udp2raw)
