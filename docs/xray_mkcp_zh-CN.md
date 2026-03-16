@@ -139,7 +139,7 @@ export DEV=enp4s0 # 你的客户端的上网接口名
 
 sudo ktuctl dump > $TMP
 sudo rmmod tutuicmptunnel
-sudo modprobe tutuicmptunnel ifnames=$DEV
+sudo modprobe tutuicmptunnel
 
 export TUTU_UID=your_user_name # 替换为你的服务器上选好的uid
 export ADDRESS=yourdomain.com # 替换为你的xray-core服务器域名或IP
@@ -148,6 +148,7 @@ export PORT=1234 # 替换为你的xray-core服务器udp端口
 sudo ktuctl script - < $TMP
 rm -f $TMP
 sudo ktuctl client
+sudo ktuctl load iface "$DEV"
 sudo ktuctl client-del address $ADDRESS user $TUTU_UID
 sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
 

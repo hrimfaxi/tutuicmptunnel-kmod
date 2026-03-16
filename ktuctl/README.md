@@ -12,12 +12,13 @@
 
 ```bash
 sudo rmmod tutuicmptunnel
-sudo modprobe tutuicmptunnel ifnames=eth0
+sudo modprobe tutuicmptunnel
 ```
 
 ### 配置服务器
 
 ```bash
+sudo ktuctl load iface eth0
 sudo ktuctl server                # 进入服务器模式
 sudo ktuctl server-add uid 42 address 10.0.0.2 port 51820 comment "wg peer"
 ```

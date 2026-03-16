@@ -143,13 +143,14 @@ export DEV=enp4s0 # Your client's internet interface name
 
 sudo ktuctl dump > $TMP
 sudo rmmod tutuicmptunnel
-sudo modprobe tutuicmptunnel ifnames=$DEV
+sudo modprobe tutuicmptunnel
 
 export TUTU_UID=your_user_name # Replace with the uid chosen on your server
 export ADDRESS=yourdomain.com # Replace with your xray-core server domain or IP
 export PORT=1234 # Replace with your xray-core server udp port
 
 sudo ktuctl script - < $TMP
+sudo ktuctl load iface "$DEV"
 rm -f $TMP
 sudo ktuctl client
 sudo ktuctl client-del address $ADDRESS user $TUTU_UID
