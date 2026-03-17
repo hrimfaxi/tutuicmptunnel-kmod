@@ -81,9 +81,6 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
     git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
     cd tutuicmptunnel-kmod
     cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
-    ```
-
-    ```sh
     make
     sudo make install
     ```

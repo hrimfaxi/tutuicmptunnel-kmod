@@ -78,9 +78,6 @@ sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl cma
 git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
 cd tutuicmptunnel-kmod
 cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
-```
-
-```sh
 make
 sudo make install
 ```
