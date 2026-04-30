@@ -39,7 +39,8 @@ enum {
   TUTU_CMD_MAX,
 };
 
-#define TUTU_CMD_MAX (__TUTU_CMD_MAX - 1)
+#define TUTU_CMD_MAX     (__TUTU_CMD_MAX - 1)
+#define TUTU_XOR_KEY_MAX 64
 
 enum {
   TUTU_ATTR_UNSPEC,
@@ -95,6 +96,9 @@ struct user_info {
   __be16          icmp_id;     // ICMP ID
   __be16          dport;       // Destination port
   __u8            comment[22]; // Comment
+  __u8            xor_key[TUTU_XOR_KEY_MAX];
+  __u8            xor_key_len;  /* 0 = disabled, valid range: 0..TUTU_XOR_KEY_MAX */
+  __u8            reserved2[7]; /* padding */
 };
 
 struct tutu_user_info {
@@ -109,8 +113,10 @@ struct egress_peer_key {
 };
 
 struct egress_peer_value {
-  __u8 uid;         // UID for this client
+  __u8 xor_key[TUTU_XOR_KEY_MAX];
   __u8 comment[22]; // Comment
+  __u8 xor_key_len; /* 0 = disabled, valid range: 0..TUTU_XOR_KEY_MAX */
+  __u8 uid;         // UID for this client
 };
 
 struct tutu_egress {
@@ -125,7 +131,11 @@ struct ingress_peer_key {
 };
 
 struct ingress_peer_value {
-  __be16 port; // Server UDP Port
+  __u8   xor_key[TUTU_XOR_KEY_MAX];
+  __u8   xor_key_len; /* 0 = disabled, valid range: 0..TUTU_XOR_KEY_MAX */
+  __u8   reserved0;
+  __be16 port;        /* Server UDP Port */
+  __u8   reserved[4]; /* padding */
 };
 
 struct tutu_ingress {

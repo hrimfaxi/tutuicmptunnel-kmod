@@ -56,11 +56,15 @@ V() {
   "$@"
 }
 
-V tuctl_client psk $PSK server $HOST server-port $SERVER_PORT <<<"server; server-add \
+cmd="server; server-add \
   uid $TUTU_UID \
   address $IP \
   port $PORT \
   comment $COMMENT \
 "
+
+[ -n "$XOR_KEY" ] && cmd="$cmd xor $XOR_KEY"
+
+V tuctl_client psk "$PSK" server "$HOST" server-port "$SERVER_PORT" <<< "$cmd"
 
 # vim: set sw=2 ts=2 expandtab:

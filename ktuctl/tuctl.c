@@ -446,6 +446,46 @@ static int string2uid(const char *string, uint8_t *uid) {
   return parse_uid(string, uid);
 }
 
+static int hexval(int c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  return -1;
+}
+
+static int parse_xor_key(const char *s, __u8 *key, __u8 *key_len, size_t max_len) {
+  size_t len;
+
+  if (!s || !key || !key_len)
+    return -EINVAL;
+
+  len = strlen(s);
+  if (len == 0 || (len & 1))
+    return -EINVAL;
+
+  len /= 2;
+  if (len > max_len)
+    return -E2BIG;
+
+  memset(key, 0, max_len);
+
+  for (size_t i = 0; i < len; i++) {
+    int hi = hexval((unsigned char) s[i * 2]);
+    int lo = hexval((unsigned char) s[i * 2 + 1]);
+
+    if (hi < 0 || lo < 0)
+      return -EINVAL;
+
+    key[i] = (unsigned char) ((hi << 4) | lo);
+  }
+
+  *key_len = (__u8) len;
+  return 0;
+}
+
 static void print_iface_usage(const char *prog, bool add) {
   fprintf(stderr,
           "Usage: %s %s [OPTIONS] iface IFACE [IFACE...]\n\n"
@@ -687,7 +727,8 @@ static int print_client_add_usage(int argc, char **argv) {
           "  %-22s The peer destination port.\n"
           "  %-22s Specify the client by numeric user ID.\n"
           "  %-22s Specify the client by username.\n"
-          "  %-22s An optional descriptive comment.\n\n"
+          "  %-22s An optional descriptive comment.\n"
+          "  %-22s Optional XOR key in hex (1..64 bytes).\n\n"
 
           "Options:\n"
           "  %-22s Force domain name resolution to IPv4.\n"
@@ -695,19 +736,21 @@ static int print_client_add_usage(int argc, char **argv) {
           "  %-22s Display UID as a number instead of resolving it to a username"
           " in command output. \n",
 
-          STR(PROG_NAME), argv[0], "address ADDR", "port PORT", "uid UID", "user USERNAME", "comment COMMENT", "-4", "-6",
-          "-n");
+          STR(PROG_NAME), argv[0], "address ADDR", "port PORT", "uid UID", "user USERNAME", "comment COMMENT", "xor XOR_KEY",
+          "-4", "-6", "-n");
   return 0;
 }
 
 int cmd_client_add(int argc, char **argv) {
-  const char *address   = NULL;
-  const char *comment   = NULL;
-  uint16_t    port      = 0;
-  uint8_t     uid       = 0;
-  bool        uid_set   = false;
-  int         err       = 0;
-  bool        is_server = false;
+  const char *address       = NULL;
+  const char *comment       = NULL;
+  uint16_t    port          = 0;
+  uint8_t     uid           = 0;
+  bool        uid_set       = false;
+  int         err           = 0;
+  bool        is_server     = false;
+  const char *xor_arg       = NULL;
+  bool        xor_specified = false;
 
   struct tutu_egress  egress;
   struct tutu_ingress ingress;
@@ -727,6 +770,11 @@ int cmd_client_add(int argc, char **argv) {
       if (++i >= argc)
         goto usage;
       comment = argv[i];
+    } else if (matches(tok, "xor")) {
+      if (++i >= argc)
+        goto usage;
+      xor_arg       = argv[i];
+      xor_specified = true;
     } else if (matches(tok, "port")) {
       if (++i >= argc)
         goto usage;
@@ -795,6 +843,13 @@ int cmd_client_add(int argc, char **argv) {
       },
   };
 
+  if (xor_specified) {
+    try2(parse_xor_key(xor_arg, egress.value.xor_key, &egress.value.xor_key_len, sizeof(egress.value.xor_key)),
+         "invalid xor key");
+    memcpy(ingress.value.xor_key, egress.value.xor_key, egress.value.xor_key_len);
+    ingress.value.xor_key_len = egress.value.xor_key_len;
+  }
+
   /* 1. 尝试设置 (TUTU_NOEXIST) */
   err = set_ingress_peer_map(&ingress.key, &ingress.value);
 
@@ -831,8 +886,8 @@ int cmd_client_add(int argc, char **argv) {
     char ipstr[INET6_ADDRSTRLEN], *uidstr = NULL;
     try2(ipv6_ntop(ipstr, &in6), "ipv6_ntop: %s", strret);
     try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
-    log_info("client set: %s, address: %s, port: %u, comment: %.*s", uidstr, ipstr, port, (int) sizeof(egress.value.comment),
-             egress.value.comment);
+    log_info("client set: %s, address: %s, port: %u, comment: %.*s%s", uidstr, ipstr, port, (int) sizeof(egress.value.comment),
+             egress.value.comment, xor_specified ? ", with xor key" : "");
     free(uidstr);
   }
 
@@ -1014,7 +1069,8 @@ static int print_server_add_usage(int argc, char **argv) {
     "  %-22s The destination port on the server for the tunnel.\n"
     "  %-22s Optional: The specific ICMP ID for the client.\n"
     "  %-22s Optional: The specific source port for the client.\n"
-    "  %-22s Optional: A descriptive comment for this client entry.\n\n"
+    "  %-22s Optional: A descriptive comment for this client entry.\n"
+    "  %-22s Optional XOR key in hex (1..64 bytes).\n\n"
 
     "Options:\n"
     "  %-22s When resolving a hostname in 'address', force IPv4.\n"
@@ -1023,19 +1079,21 @@ static int print_server_add_usage(int argc, char **argv) {
     " in command output. \n",
 
     STR(PROG_NAME), argv[0], "uid UID", "user USERNAME", "address ADDR", "port PORT", "icmp-id ICMP_ID", "sport PORT",
-    "comment COMMENT", "-4", "-6", "-n");
+    "comment COMMENT", "xor XOR_KEY", "-4", "-6", "-n");
   return 0;
 }
 
 int cmd_server_add(int argc, char **argv) {
-  uint8_t     uid       = 0;
-  const char *address   = NULL;
-  uint16_t    port      = 0;
-  uint16_t    icmp_id   = 0;
-  bool        uid_set   = false;
-  char       *comment   = NULL;
-  int         err       = -EINVAL;
-  bool        is_server = false;
+  uint8_t     uid           = 0;
+  const char *address       = NULL;
+  uint16_t    port          = 0;
+  uint16_t    icmp_id       = 0;
+  bool        uid_set       = false;
+  char       *comment       = NULL;
+  int         err           = -EINVAL;
+  bool        is_server     = false;
+  const char *xor_arg       = NULL;
+  bool        xor_specified = false;
 
   struct user_info user;
 
@@ -1076,6 +1134,12 @@ int cmd_server_add(int argc, char **argv) {
         goto usage;
 
       comment = argv[i];
+    } else if (matches(tok, "xor")) {
+      if (++i >= argc)
+        goto usage;
+
+      xor_arg       = argv[i];
+      xor_specified = true;
     } else if (is_help_kw(tok)) {
       goto usage;
     } else {
@@ -1109,6 +1173,10 @@ int cmd_server_add(int argc, char **argv) {
     .dport   = htons(port),
   };
 
+  if (xor_specified) {
+    try2(parse_xor_key(xor_arg, user.xor_key, &user.xor_key_len, sizeof(user.xor_key)), "invalid xor key");
+  }
+
   if (comment) {
     if (strpbrk(comment, "\r\n")) {
       log_error("Multi-line comment is not allowed.");
@@ -1133,8 +1201,8 @@ int cmd_server_add(int argc, char **argv) {
     char *uidstr = NULL;
     try2(ipv6_ntop(ipstr, &user.address), "ipv6_ntop: %s %s", ipstr, strret);
     try2(uid2string(uid, &uidstr, 0), "uid2string: %s", strret);
-    log_info("server updated: %s, address: %s, dport: %u, comment: %.*s", uidstr, ipstr, ntohs(user.dport),
-             (int) sizeof(user.comment), user.comment);
+    log_info("server updated: %s, address: %s, dport: %u, comment: %.*s%s", uidstr, ipstr, ntohs(user.dport),
+             (int) sizeof(user.comment), user.comment, xor_specified ? ", with xor key" : "");
     free(uidstr);
   }
 
@@ -1297,37 +1365,32 @@ static int get_boot_seconds(__u64 *seconds) {
 
 static int print_user_info_cb(void *entry_ptr, void *user_data) {
   (void) user_data;
-  struct tutu_user_info *u_info = entry_ptr; // 强转类型
+  struct tutu_user_info *u_info = entry_ptr;
 
   char            ipstr[INET6_ADDRSTRLEN];
   struct in6_addr in6    = u_info->value.address;
   char           *uidstr = NULL;
 
-  /* 转换 IPv6 地址 */
   if (ipv6_ntop(ipstr, &in6) < 0) {
-    // 如果你的环境里有 log_error，可以用它，否则用 fprintf
     fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
-    return 0; // Skip this one
+    return 0;
   }
 
-  /* 转换 UID */
-  // 注意：原代码 u_info.key 是传值，uid2string 原型可能是 (uint8_t, char**, ...)
   if (uid2string(u_info->key, &uidstr, 0) < 0) {
     fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
     return 0;
   }
 
-  /* 打印主要信息 */
   printf("  %s, Address: %s, Dport: %u, ICMP: %u", uidstr, ipstr, ntohs(u_info->value.dport), ntohs(u_info->value.icmp_id));
-
-  /* 释放由 uid2string 分配的内存 */
   free(uidstr);
 
-  /* 打印注释 (假设 print_comment 只是打印不换行) */
+  if (u_info->value.xor_key_len)
+    printf(", with xor key");
+
   print_comment((const char *) u_info->value.comment, sizeof(u_info->value.comment), 0);
   printf("\n");
 
-  return 0; /* 返回 0 表示继续遍历下一个 */
+  return 0;
 }
 
 static int print_session_cb(void *entry_ptr, void *user_data) {
@@ -1362,15 +1425,13 @@ static int print_session_cb(void *entry_ptr, void *user_data) {
 
 static int print_egress_peer_cb(void *entry_ptr, void *user_data) {
   struct tutu_egress *egress = entry_ptr;
-  int                *cnt    = user_data; /* 将 user_data 还原为 int 指针 */
+  int                *cnt    = user_data;
 
-  /* 原逻辑的过滤条件: if (ntohs(egress.key.port)) */
   if (ntohs(egress->key.port)) {
     char            ipstr[INET6_ADDRSTRLEN];
     struct in6_addr in6    = egress->key.address;
     char           *uidstr = NULL;
 
-    /* 替换 try2 宏为标准错误打印，出错不中断遍历 */
     if (ipv6_ntop(ipstr, &in6) < 0) {
       fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
       return 0;
@@ -1382,22 +1443,22 @@ static int print_egress_peer_cb(void *entry_ptr, void *user_data) {
     }
 
     printf("  %s, Address: %s, Port: %u", uidstr, ipstr, ntohs(egress->key.port));
-
     free(uidstr);
+
+    if (egress->value.xor_key_len)
+      printf(", with xor key");
 
     print_comment((const char *) egress->value.comment, sizeof(egress->value.comment), 0);
     printf("\n");
 
-    /* 核心逻辑：计数器加一 */
     (*cnt)++;
   }
 
-  return 0; /* 继续遍历 */
+  return 0;
 }
 
 static int print_ingress_peer_cb(void *entry_ptr, void *user_data) {
   (void) user_data;
-
   struct tutu_ingress *ingress = entry_ptr;
 
   char  ipstr[INET6_ADDRSTRLEN];
@@ -1413,7 +1474,8 @@ static int print_ingress_peer_cb(void *entry_ptr, void *user_data) {
     return 0;
   }
 
-  printf("  %s, Address: %s => Sport: %u\n", uidstr, ipstr, ntohs(ingress->value.port));
+  printf("  %s, Address: %s => Sport: %u%s\n", uidstr, ipstr, ntohs(ingress->value.port),
+         ingress->value.xor_key_len ? ", with xor key" : "");
 
   free(uidstr);
   return 0;
@@ -1527,20 +1589,17 @@ static int print_dump_usage(int argc, char *argv[]) {
 /* 回调：导出 Server 模式下的 User Info */
 static int dump_user_info_cb(void *entry_ptr, void *user_data) {
   (void) user_data;
-
   struct tutu_user_info *u_info = entry_ptr;
 
   char            ipstr[INET6_ADDRSTRLEN];
   struct in6_addr in6    = u_info->value.address;
   char           *uidstr = NULL;
 
-  /* 辅助函数出错不中断遍历，只打印错误 */
   if (ipv6_ntop(ipstr, &in6) < 0) {
     fprintf(stderr, "ipv6_ntop failed: %s\n", strerror(errno));
     return 0;
   }
 
-  /* 注意：uid2string 第三个参数 1 表示 hex/decimal 格式控制？保持原代码逻辑 */
   if (uid2string(u_info->key, &uidstr, 1) < 0) {
     fprintf(stderr, "uid2string failed: %s\n", strerror(errno));
     return 0;
@@ -1552,10 +1611,14 @@ static int dump_user_info_cb(void *entry_ptr, void *user_data) {
          "icmp-id %u "
          "port %u",
          uidstr, ipstr, ntohs(u_info->value.icmp_id), ntohs(u_info->value.dport));
-
   free(uidstr);
 
-  /* print_comment 第三个参数 1 保持原逻辑 (可能表示自动换行或加#号) */
+  if (u_info->value.xor_key_len) {
+    printf(" xor ");
+    for (int i = 0; i < u_info->value.xor_key_len; i++)
+      printf("%02x", u_info->value.xor_key[i]);
+  }
+
   print_comment((const char *) u_info->value.comment, sizeof(u_info->value.comment), 1);
   printf("\n");
 
@@ -1565,10 +1628,8 @@ static int dump_user_info_cb(void *entry_ptr, void *user_data) {
 /* 回调：导出 Client 模式下的 Egress Peers */
 static int dump_egress_cb(void *entry_ptr, void *user_data) {
   (void) user_data;
-
   struct tutu_egress *egress = entry_ptr;
 
-  /* 过滤逻辑：只导出端口不为 0 的项 */
   if (ntohs(egress->key.port)) {
     char            ipstr[INET6_ADDRSTRLEN];
     struct in6_addr in6    = egress->key.address;
@@ -1589,8 +1650,13 @@ static int dump_egress_cb(void *entry_ptr, void *user_data) {
            "addr %s "
            "port %u",
            uidstr, ipstr, ntohs(egress->key.port));
-
     free(uidstr);
+
+    if (egress->value.xor_key_len) {
+      printf(" xor ");
+      for (int i = 0; i < egress->value.xor_key_len; i++)
+        printf("%02x", egress->value.xor_key[i]);
+    }
 
     print_comment((const char *) egress->value.comment, sizeof(egress->value.comment), 1);
     printf("\n");

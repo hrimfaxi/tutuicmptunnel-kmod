@@ -4,6 +4,7 @@
 #include <linux/module.h>
 #include <linux/netlink.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/version.h>
 
 #include <net/genetlink.h>
@@ -60,7 +61,7 @@ static bool tutu_user_allowed(const struct sk_buff *skb, const struct genl_info 
 /*
  * 兼容性处理：
  * Linux 5.2 引入了 family 级别的 policy (global policy)。
- *在此之前，policy 必须挂载在每个 ops 上。
+ * 在此之前，policy 必须挂载在每个 ops 上。
  */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0)
 /* 老内核：Family 没有 policy，Ops 需要 policy */
@@ -73,9 +74,8 @@ static bool tutu_user_allowed(const struct sk_buff *skb, const struct genl_info 
 #endif
 
 static const struct nla_policy tutu_genl_policy[TUTU_ATTR_MAX + 1] = {
-  [TUTU_ATTR_CONFIG] = {.type = NLA_BINARY, .len = sizeof(struct tutu_config)},
-  [TUTU_ATTR_STATS]  = {.type = NLA_BINARY, .len = sizeof(struct tutu_stats)},
-
+  [TUTU_ATTR_CONFIG]      = {.type = NLA_BINARY, .len = sizeof(struct tutu_config)},
+  [TUTU_ATTR_STATS]       = {.type = NLA_BINARY, .len = sizeof(struct tutu_stats)},
   [TUTU_ATTR_EGRESS]      = {.type = NLA_BINARY, .len = sizeof(struct tutu_egress)},
   [TUTU_ATTR_INGRESS]     = {.type = NLA_BINARY, .len = sizeof(struct tutu_ingress)},
   [TUTU_ATTR_SESSION]     = {.type = NLA_BINARY, .len = sizeof(struct tutu_session)},
@@ -90,7 +90,42 @@ static int tutu_genl_set_config(struct sk_buff *skb, struct genl_info *info);
 static int tutu_genl_get_stats(struct sk_buff *skb, struct genl_info *info);
 static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
 
-#define DEFINE_TUTU_GENL_FUNCS(_dir, _map, _value_type, _attr, _CMD_GET)                                                       \
+/*
+ * Generic validator.
+ *
+ * 注意：
+ * 不能用 bool 参数，例如 _has_xor，然后在 if (_has_xor) 里访问 xor_key_len。
+ * 因为即使条件为 false，C 编译器仍然会 type-check 那个字段访问。
+ * session_value 没有 xor_key_len，会直接编译失败。
+ *
+ * 所以这里用 validator macro：
+ *   - TUTU_GENL_VALIDATE_XOR: 用于 egress / ingress / user_info
+ *   - TUTU_GENL_VALIDATE_NONE: 用于 session
+ */
+#define TUTU_GENL_VALIDATE_NONE(_entry, _info)                                                                                 \
+  do {                                                                                                                         \
+  } while (0)
+
+#define TUTU_GENL_VALIDATE_XOR(_entry, _info)                                                                                  \
+  do {                                                                                                                         \
+    if ((_entry).value.xor_key_len > sizeof((_entry).value.xor_key)) {                                                         \
+      NL_SET_ERR_MSG((_info)->extack, "xor_key_len exceeds maximum");                                                          \
+      return -EINVAL;                                                                                                          \
+    }                                                                                                                          \
+                                                                                                                               \
+    if ((_entry).value.xor_key_len < sizeof((_entry).value.xor_key)) {                                                         \
+      memset((_entry).value.xor_key + (_entry).value.xor_key_len, 0,                                                           \
+             sizeof((_entry).value.xor_key) - (_entry).value.xor_key_len);                                                     \
+    }                                                                                                                          \
+  } while (0)
+
+/*
+ * 通用宏：生成 get (doit/dumpit) / delete / update 函数。
+ *
+ * _validate 用于 update 前检查 entry.value。
+ * 这样 session 也可以继续用这个宏，不需要手写一整套函数。
+ */
+#define DEFINE_TUTU_GENL_FUNCS(_dir, _map, _value_type, _attr, _CMD_GET, _validate)                                            \
                                                                                                                                \
   /* --- 1. Single Lookup (GET DOIT) --- */                                                                                    \
   static int tutu_genl_get_##_dir(struct sk_buff *skb, struct genl_info *info) {                                               \
@@ -159,13 +194,14 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
       ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);                                                                                 \
       if (!ctx)                                                                                                                \
         return -ENOMEM;                                                                                                        \
-      cb->args[0] = (long) ctx;                                                                                                \
+      cb->args[0] = (unsigned long) ctx;                                                                                       \
     }                                                                                                                          \
     /* 如果上次已经标记完成了，直接返回 0，告诉 Netlink 结束了 */                                                              \
     if (ctx->done)                                                                                                             \
       return 0;                                                                                                                \
                                                                                                                                \
     rcu_read_lock();                                                                                                           \
+                                                                                                                               \
     if (!ctx->started) {                                                                                                       \
       /* 只有没开始的时候，才需要去拿第一个 */                                                                                 \
       err = tutu_map_get_next_key(_map, NULL, &ctx->cursor_entry.key);                                                         \
@@ -248,6 +284,7 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
   static int tutu_genl_update_##_dir(struct sk_buff *skb, struct genl_info *info) {                                            \
     struct tutu_##_dir entry;                                                                                                  \
     int                err;                                                                                                    \
+                                                                                                                               \
     if (!tutu_user_allowed(skb, info)) {                                                                                       \
       NL_SET_ERR_MSG(info->extack, "permission denied for this command");                                                      \
       return -EPERM;                                                                                                           \
@@ -258,6 +295,8 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
       return -EINVAL;                                                                                                          \
     memcpy(&entry, nla_data(info->attrs[_attr]), sizeof(entry));                                                               \
                                                                                                                                \
+    _validate(entry, info);                                                                                                    \
+                                                                                                                               \
     rcu_read_lock();                                                                                                           \
     err = tutu_map_update_elem(_map, &entry.key, &entry.value, entry.map_flags);                                               \
     rcu_read_unlock();                                                                                                         \
@@ -266,16 +305,22 @@ static int tutu_genl_clr_stats(struct sk_buff *skb, struct genl_info *info);
   }
 
 /* 生成 Egress 函数 */
-DEFINE_TUTU_GENL_FUNCS(egress, egress_peer_map, struct egress_peer_value, TUTU_ATTR_EGRESS, TUTU_CMD_GET_EGRESS);
+DEFINE_TUTU_GENL_FUNCS(egress, egress_peer_map, struct egress_peer_value, TUTU_ATTR_EGRESS, TUTU_CMD_GET_EGRESS,
+                       TUTU_GENL_VALIDATE_XOR);
 
 /* 生成 Ingress 函数 */
-DEFINE_TUTU_GENL_FUNCS(ingress, ingress_peer_map, struct ingress_peer_value, TUTU_ATTR_INGRESS, TUTU_CMD_GET_INGRESS);
+DEFINE_TUTU_GENL_FUNCS(ingress, ingress_peer_map, struct ingress_peer_value, TUTU_ATTR_INGRESS, TUTU_CMD_GET_INGRESS,
+                       TUTU_GENL_VALIDATE_XOR);
 
 /* 生成 Session 函数 */
-DEFINE_TUTU_GENL_FUNCS(session, session_map, struct session_value, TUTU_ATTR_SESSION, TUTU_CMD_GET_SESSION);
+DEFINE_TUTU_GENL_FUNCS(session, session_map, struct session_value, TUTU_ATTR_SESSION, TUTU_CMD_GET_SESSION,
+                       TUTU_GENL_VALIDATE_NONE);
 
 /* 生成 User Info 函数 */
-DEFINE_TUTU_GENL_FUNCS(user_info, user_map, struct user_info, TUTU_ATTR_USER_INFO, TUTU_CMD_GET_USER_INFO);
+DEFINE_TUTU_GENL_FUNCS(user_info, user_map, struct user_info, TUTU_ATTR_USER_INFO, TUTU_CMD_GET_USER_INFO,
+                       TUTU_GENL_VALIDATE_XOR);
+
+/* ========== 配置与统计 ========== */
 
 static int tutu_genl_get_config(struct sk_buff *skb, struct genl_info *info) {
   struct sk_buff    *msg;
@@ -446,8 +491,8 @@ static int tutu_genl_ifname_del(struct sk_buff *skb, struct genl_info *info) {
       break; /* 找到了就退出 */
     }
   }
-
   mutex_unlock(&tutu_ifname_lock);
+
   return found ? ifset_reload_config() : -ENOENT;
 }
 
@@ -483,6 +528,8 @@ static int tutu_genl_ifname_dump(struct sk_buff *skb, struct netlink_callback *c
   cb->args[0] = idx; // 记录进度
   return (int) skb->len;
 }
+
+/* ========== 操作表 ========== */
 
 static const struct genl_ops tutu_genl_ops[] = {
   /* Config & Stats */
@@ -538,7 +585,6 @@ static struct genl_family tutu_genl_family = {.name    = TUTU_GENL_FAMILY_NAME,
                                               .maxattr = TUTU_ATTR_MAX,
                                               .module  = THIS_MODULE,
                                               .netnsok = true,
-                                              .policy  = tutu_genl_policy, /* 全局 Policy */
                                               .ops     = tutu_genl_ops,
                                               .n_ops   = ARRAY_SIZE(tutu_genl_ops),
                                               TUTU_FAM_POLICY};

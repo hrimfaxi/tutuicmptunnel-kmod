@@ -1,5 +1,6 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <crypto/algapi.h>
 #include <linux/atomic.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
@@ -17,6 +18,7 @@
 #include <linux/tcp.h>
 #include <linux/uaccess.h>
 #include <linux/udp.h>
+#include <linux/unaligned.h>
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
 
@@ -401,6 +403,89 @@ static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, st
   return 0;
 }
 
+static __always_inline bool tutu_xor_enabled(const __u8 *key, __u8 key_len) {
+  return key && key_len > 0 && key_len <= TUTU_XOR_KEY_MAX;
+}
+
+enum tutu_xor_dir {
+  TUTU_XOR_DIR_C2S = 0,
+  TUTU_XOR_DIR_S2C = 1,
+};
+
+/*
+ * client egress  == server ingress == C2S
+ * client ingress == server egress  == S2C
+ */
+static __always_inline enum tutu_xor_dir tutu_xor_dir(bool is_ingress, bool is_server) {
+  return is_ingress == is_server ? TUTU_XOR_DIR_C2S : TUTU_XOR_DIR_S2C;
+}
+
+static __always_inline u32 tutu_mix32(u32 x) {
+  x ^= x >> 16;
+  x *= 0x7feb352dU;
+  x ^= x >> 15;
+  x *= 0x846ca68bU;
+  x ^= x >> 16;
+  return x;
+}
+
+static __always_inline u32 tutu_xor_key_start(__be16 icmp_seq, u32 payload_len, bool is_ingress, bool is_server, const u8 *key,
+                                              u32 key_len) {
+  enum tutu_xor_dir dir  = tutu_xor_dir(is_ingress, is_server);
+  u32               seq  = ntohs(icmp_seq);
+  u32               base = 0;
+  u32               salt;
+
+  if (key_len >= 4)
+    base = get_unaligned_le32(key);
+  else if (key_len > 0)
+    base = key[0] * 0x01010101U;
+
+  salt = base ^ (dir == TUTU_XOR_DIR_C2S ? 0x9e3779b9U : 0x7f4a7c15U);
+
+  u32 mix_len = tutu_mix32(payload_len);
+  return tutu_mix32(seq ^ salt ^ mix_len);
+}
+
+static inline void xor_with_key(u8 *p, u32 len, const u8 *key, u32 key_len, u32 key_start) {
+  u32 offset = 0;
+  u32 key_off;
+
+  if (!key_len)
+    return;
+
+  key_off = key_start % key_len;
+
+  while (offset < len) {
+    u32 chunk = min(key_len - key_off, len - offset);
+
+    crypto_xor(p + offset, key + key_off, chunk);
+
+    offset += chunk;
+    key_off = 0;
+  }
+}
+
+static int skb_xor_payload_linear(struct sk_buff *skb, u32 off, u32 len, const __u8 *key, __u8 key_len, u32 key_start) {
+  __u8 *p;
+  int   err;
+
+  if (!len || !key_len)
+    return 0;
+
+  if (!pskb_may_pull(skb, off + len))
+    return -ENOMEM;
+
+  err = skb_ensure_writable(skb, off + len);
+  if (err)
+    return err;
+
+  p = skb->data + off;
+  xor_with_key(p, len, key, key_len, key_start);
+
+  return 0;
+}
+
 static __always_inline int skb_store_bytes_linear(struct sk_buff *skb, unsigned int off, const void *from, unsigned int len) {
   /* 已经 pskb_may_pull() 线性化了相关区域，但写之前仍建议确保可写 */
   if (skb_ensure_writable(skb, off + len))
@@ -411,8 +496,8 @@ static __always_inline int skb_store_bytes_linear(struct sk_buff *skb, unsigned 
 }
 
 // 有可能导致ipv4/ipv6指针失效
-static __always_inline int update_ipv4_checksum(struct sk_buff *skb, struct iphdr *ipv4, u32 l2_len, u32 old_proto,
-                                                u32 new_proto) {
+static __always_inline int skb_update_ipv4_checksum(struct sk_buff *skb, struct iphdr *ipv4, u32 l2_len, u32 old_proto,
+                                                    u32 new_proto) {
   const __be16 old_word = htons((ipv4->ttl << 8) | old_proto);
   const __be16 new_word = htons((ipv4->ttl << 8) | new_proto);
 
@@ -435,7 +520,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
   int      err;
 
   if (ip_type == 4 && ip_proto == IPPROTO_ICMP) {
-    if (force_sw_checksum || skb->ip_summed == CHECKSUM_NONE) {
+    if (force_sw_checksum || skb->ip_summed != CHECKSUM_PARTIAL) {
       struct iphdr   *iph      = ip_hdr(skb);
       struct icmphdr *icmph    = (typeof(icmph)) (skb->data + l4_offset);
       size_t          icmp_len = ntohs(iph->tot_len) - ip_hdr_len;
@@ -451,7 +536,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
       icmph->checksum = 0;
       icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
       skb->ip_summed  = CHECKSUM_UNNECESSARY;
-    } else if (skb->ip_summed == CHECKSUM_PARTIAL) {
+    } else {
       // skb->csum_start: 不变，因为udp->icmp并没有修改包长度
       // skb->csum_offset: 应该指向icmp头部检验和位置
       skb->csum_offset = offsetof(struct icmphdr, checksum);
@@ -464,7 +549,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
 
     icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
 
-    if (force_sw_checksum || skb->ip_summed == CHECKSUM_NONE) {
+    if (force_sw_checksum || skb->ip_summed != CHECKSUM_PARTIAL) {
       err = skb_ensure_writable(skb, l4_offset + icmp_len);
       if (unlikely(err))
         return err;
@@ -477,7 +562,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
       __wsum csum         = csum_partial((char *) icmp6h, (int) icmp_len, 0);
       icmp6h->icmp6_cksum = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, csum);
       skb->ip_summed      = CHECKSUM_UNNECESSARY;
-    } else if (skb->ip_summed == CHECKSUM_PARTIAL) {
+    } else {
       err = skb_ensure_writable(skb, l4_offset + sizeof(struct icmp6hdr));
       if (unlikely(err))
         return err;
@@ -525,6 +610,31 @@ static int update_session_map(struct user_info *user, u8 uid, __be16 icmp_seq) {
   return err;
 }
 
+/*
+ * 在可能导致 skb->data 位置变化的操作之后，重新恢复缓存的头部指针。
+ *
+ * udp 和 icmp 是同一个 L4 头部位置的两种协议视图：
+ * skb->data + ip_end。
+ *
+ * 只有和当前包真实协议匹配的那个视图，在语义上才是有效的。
+ */
+#define RESTORE_SKB_POINTERS()                                                                                                 \
+  do {                                                                                                                         \
+    if (ip_type == 4) {                                                                                                        \
+      ipv4 = ip_hdr(skb);                                                                                                      \
+      ipv6 = NULL;                                                                                                             \
+    } else if (ip_type == 6) {                                                                                                 \
+      ipv4 = NULL;                                                                                                             \
+      ipv6 = ipv6_hdr(skb);                                                                                                    \
+    } else {                                                                                                                   \
+      err = NF_ACCEPT;                                                                                                         \
+      goto err_cleanup;                                                                                                        \
+    }                                                                                                                          \
+                                                                                                                               \
+    udp  = (struct udphdr *) (skb->data + ip_end);                                                                             \
+    icmp = (struct icmphdr *) (skb->data + ip_end);                                                                            \
+  } while (0)
+
 static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
   int                  err;
   struct tutu_config   config, *cfg = &config;
@@ -567,11 +677,14 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   // 不需要整个udp包：因为udp负载没有被修改过，也不需要检查udp负载长度
   try2_ok(pskb_may_pull(skb, ip_end + sizeof(struct udphdr)) ? 0 : -1);
 
-  struct udphdr *udp = udp_hdr(skb);
-  if (!udp) {
-    err = NF_ACCEPT;
-    goto err_cleanup;
-  }
+  struct udphdr  *udp  = NULL;
+  struct icmphdr *icmp = NULL;
+  struct iphdr   *ipv4 = NULL;
+  struct ipv6hdr *ipv6 = NULL;
+
+  RESTORE_SKB_POINTERS();
+
+  (void) icmp;
 
   // 非法的udp长度
   if (ntohs(udp->len) < sizeof(*udp)) {
@@ -579,22 +692,12 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     goto err_cleanup;
   }
 
-  struct iphdr   *ipv4 = NULL;
-  struct ipv6hdr *ipv6 = NULL;
-
-  if (ip_type == 4) {
-    ipv4 = ip_hdr(skb);
-  } else if (ip_type == 6) {
-    ipv6 = ipv6_hdr(skb);
-  } else {
-    // 不可能
-    err = NF_ACCEPT;
-    goto err_cleanup;
-  }
-
   struct user_info *user = NULL;
   __be16            icmp_id, icmp_seq;
   u8                icmp_type = 0, uid;
+
+  const __u8 *xor_key     = NULL;
+  __u8        xor_key_len = 0;
 
   if (ipv4) {
     // UDP payload length
@@ -647,18 +750,20 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
       icmp_type = ICMP6_ECHO_REPLY;
     }
 
-    icmp_id  = user->icmp_id;
-    icmp_seq = value_ptr->client_sport;
+    icmp_id     = user->icmp_id;
+    icmp_seq    = value_ptr->client_sport;
+    xor_key     = user->xor_key;
+    xor_key_len = user->xor_key_len;
   } else {
     struct egress_peer_key peer_key = {
       .port = udp->dest,
     };
 
     if (ipv4) {
-      pr_debug("egress: udp: %pI4:%5u\n", &ipv4->saddr, udp->dest);
+      pr_debug("egress: udp: %pI4:%5u\n", &ipv4->saddr, ntohs(udp->dest));
       ipv6_addr_set_v4mapped(get_unaligned(&ipv4->daddr), &peer_key.address);
     } else if (ipv6) {
-      pr_debug("egress: udp: src %pI6:%5u\n", &ipv6->saddr, udp->dest);
+      pr_debug("egress: udp: src %pI6:%5u\n", &ipv6->saddr, ntohs(udp->dest));
       ipv6_copy(&peer_key.address, &ipv6->daddr);
     }
 
@@ -694,6 +799,8 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
 
     // icmp_id也使用源端口, 服务器有可能看到被nat修改后的新值
     icmp_id = icmp_seq = udp->source;
+    xor_key            = peer_value->xor_key;
+    xor_key_len        = peer_value->xor_key_len;
   }
 
   atomic64_inc(&stat->packets_processed);
@@ -701,6 +808,54 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   struct udphdr old_udp = *udp;
 
   _Static_assert(sizeof(struct icmphdr) == sizeof(struct udphdr), "ICMP and UDP header sizes must match");
+
+  if (tutu_xor_enabled(xor_key, xor_key_len)) {
+    u32 l4_len, payload_off, payload_len;
+
+    if (ipv4) {
+      if (ntohs(ipv4->tot_len) < ip_hdr_len + sizeof(struct udphdr)) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+
+      l4_len = ntohs(ipv4->tot_len) - ip_hdr_len;
+    } else if (ipv6) {
+      u32 ip_payload_len = ntohs(ipv6->payload_len);
+      u32 ext_len;
+
+      if (ip_hdr_len < sizeof(struct ipv6hdr)) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+
+      ext_len = ip_hdr_len - sizeof(struct ipv6hdr);
+
+      if (ip_payload_len < ext_len + sizeof(struct udphdr)) {
+        err = NF_ACCEPT;
+        goto err_cleanup;
+      }
+
+      l4_len = ip_payload_len - ext_len;
+    } else {
+      err = NF_ACCEPT;
+      goto err_cleanup;
+    }
+
+    payload_off = ip_end + sizeof(struct udphdr);
+    payload_len = l4_len - sizeof(struct udphdr);
+
+    u32 key_start = tutu_xor_key_start(icmp_seq, payload_len, false, !!cfg->is_server, xor_key, xor_key_len);
+
+    err = skb_xor_payload_linear(skb, payload_off, payload_len, xor_key, xor_key_len, key_start);
+    if (err) {
+      atomic64_inc(&stat->packets_dropped);
+      pr_debug("skb_xor_payload_linear failed: %d\n", err);
+      err = NF_DROP;
+      goto err_cleanup;
+    }
+
+    RESTORE_SKB_POINTERS();
+  }
 
   // Create an ICMP header in place of the UDP header
   struct icmphdr icmp_hdr = {
@@ -728,13 +883,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     goto err_cleanup;
   }
 
-  // 写入字节之后， ipv4 & ipv6不再能访问
-  // 需要重设指针
-  if (ipv4) {
-    ipv4 = ip_hdr(skb);
-  } else if (ipv6) {
-    ipv6 = ipv6_hdr(skb);
-  }
+  RESTORE_SKB_POINTERS();
 
   // 修改IP协议为ICMP
   // 只有ipv4才需要修复ip头部检验和
@@ -742,15 +891,15 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   if (ipv4) {
     new_proto = IPPROTO_ICMP;
 
-    err = update_ipv4_checksum(skb, ipv4, l2_len, IPPROTO_UDP, new_proto);
+    err = skb_update_ipv4_checksum(skb, ipv4, l2_len, IPPROTO_UDP, new_proto);
     if (err) {
       atomic64_inc(&stat->packets_dropped);
-      pr_debug("update_ipv4_checksum failed: %d\n", err);
+      pr_debug("skb_update_ipv4_checksum failed: %d\n", err);
       err = NF_DROP;
       goto err_cleanup;
     }
 
-    ipv4 = ip_hdr(skb);
+    RESTORE_SKB_POINTERS();
   }
 
   err = skb_store_bytes_linear(skb, ip_proto_offset, &new_proto, sizeof(new_proto));
@@ -761,12 +910,20 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     goto err_cleanup;
   }
 
+  RESTORE_SKB_POINTERS();
+
   // ipv4: 如果是硬件offload：设置csum_offset为icmphdr->checksum位置。不需要修改csum_start，继续硬件offload
   // ipv4: 如果是软件计算: 重新算整个icmp的检验和，停止硬件计算
   // ipv6: 重新算整个icmpv6的检验和，停止硬件计算
   err = skb_change_type(skb, ip_type, l2_len, ip_hdr_len, ip_proto_offset, ip_end);
-  (void) err;
+  if (err) {
+    atomic64_inc(&stat->packets_dropped);
+    pr_debug("skb_change_type failed: %d\n", err);
+    err = NF_DROP;
+    goto err_cleanup;
+  }
 
+  RESTORE_SKB_POINTERS();
   {
     u16 udp_payload_len = ntohs(old_udp.len) - sizeof(*udp);
     pr_debug("  Rebuilt ICMP: id: %u, seq: %u, type: %u, code: %u, length: %u\n", ntohs(icmp_hdr.un.echo.id),
@@ -849,16 +1006,12 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
 
   struct iphdr   *ipv4 = NULL;
   struct ipv6hdr *ipv6 = NULL;
+  struct icmphdr *icmp = NULL;
+  struct udphdr  *udp  = NULL;
 
-  if (ip_type == 4) {
-    ipv4 = ip_hdr(skb);
-  } else if (ip_type == 6) {
-    ipv6 = ipv6_hdr(skb);
-  } else {
-    // 不可能
-    err = NF_ACCEPT;
-    goto err_cleanup;
-  }
+  RESTORE_SKB_POINTERS();
+
+  (void) udp;
 
   {
     // 至少应该有l3头部长度再加上icmp头部
@@ -887,7 +1040,6 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   }
 
   // 由于icmp和icmp6hdr大小相等，而且前4字节完全等价，我们使用icmphdr作为表示icmp头部的类型
-  struct icmphdr *icmp = (typeof(icmp)) (skb->data + ip_end);
   _Static_assert(sizeof(struct icmphdr) == sizeof(struct icmp6hdr), "ICMP and ICMPv6 header sizes must match");
 
   // Extract UID from ICMP code
@@ -896,6 +1048,9 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   __be16 icmp_id  = icmp->un.echo.id;
 
   struct user_info *user = NULL;
+
+  const __u8 *xor_key     = NULL;
+  __u8        xor_key_len = 0;
 
   if (cfg->is_server) {
     // Server: Check for ECHO_REQUEST and valid UID
@@ -926,6 +1081,8 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
 
     // 需要更新session_map
     try2_ok(update_session_map(user, uid, icmp_seq), "update session map: %ld\n", _ret);
+    xor_key     = user->xor_key;
+    xor_key_len = user->xor_key_len;
   } else {
     if (ipv4) {
       try2_ok(icmp->type == ICMP_ECHO_REPLY ? 0 : -1);
@@ -959,6 +1116,8 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
                                                       "ingress client: unrelated packet\n");
     udp_src                               = peer_value->port;
     udp_dst                               = icmp_seq; // Use ICMP sequence as destination port
+    xor_key                               = peer_value->xor_key;
+    xor_key_len                           = peer_value->xor_key_len;
   }
 
   atomic64_inc(&stat->packets_processed);
@@ -990,6 +1149,20 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     payload_len = sizeof(struct ipv6hdr) + ntohs(ipv6->payload_len) - ip_hdr_len - sizeof(struct icmp6hdr);
   }
 
+  {
+    unsigned int need_len = ip_end + sizeof(struct icmphdr);
+
+    if (tutu_xor_enabled(xor_key, xor_key_len) && payload_len > 0)
+      need_len += payload_len;
+
+    if (!pskb_may_pull(skb, need_len)) {
+      err = NF_ACCEPT;
+      goto err_cleanup;
+    }
+
+    RESTORE_SKB_POINTERS();
+  }
+
   // Create a UDP header in place of the ICMP header
   struct udphdr udp_hdr = {
     .source = udp_src,
@@ -1002,7 +1175,7 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   old_icmp = *icmp;
 
   pr_debug("Incoming ICMP: %pI6 -> %pI6\n", &saddr, &daddr);
-  pr_debug("  id: %u, seq: %u, length: %u,\n", htons(icmp_id), htons(icmp_seq), payload_len);
+  pr_debug("  id: %u, seq: %u, length: %u,\n", ntohs(icmp_id), ntohs(icmp_seq), payload_len);
 
   // 只有ipv4才需要修复ip头部检验和
   u8 new_proto = IPPROTO_UDP;
@@ -1015,31 +1188,44 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     goto err_cleanup;
   }
 
-  // 写入字节之后， ipv4 & ipv6不再能访问
-  // 需要重设指针
-  if (ipv4) {
-    ipv4 = ip_hdr(skb);
-  } else if (ipv6) {
-    ipv6 = ipv6_hdr(skb);
-  }
+  RESTORE_SKB_POINTERS();
 
   if (ipv4) {
-    err = update_ipv4_checksum(skb, ipv4, l2_len, IPPROTO_ICMP, new_proto);
+    err = skb_update_ipv4_checksum(skb, ipv4, l2_len, IPPROTO_ICMP, new_proto);
     if (err) {
       atomic64_inc(&stat->packets_dropped);
-      pr_debug("update_ipv4_checksum failed: %d\n", err);
+      pr_debug("skb_update_ipv4_checksum failed: %d\n", err);
       err = NF_DROP;
       goto err_cleanup;
     }
 
-    ipv4 = ip_hdr(skb);
+    RESTORE_SKB_POINTERS();
   }
 
   _Static_assert(sizeof(struct icmphdr) == sizeof(struct udphdr), "ICMP and UDP header sizes must match");
   _Static_assert(sizeof(udp_hdr) == 8, "ICMP and UDP header sizes must match");
 
   {
-    __wsum payload_sum = recover_payload_csum_from_icmp(&old_icmp, ipv6, payload_len);
+    __wsum       payload_sum;
+    unsigned int payload_off = ip_end + sizeof(struct icmphdr);
+
+    if (tutu_xor_enabled(xor_key, xor_key_len) && payload_len > 0) {
+      u32 key_start = tutu_xor_key_start(icmp_seq, payload_len, true, !!cfg->is_server, xor_key, xor_key_len);
+
+      err = skb_xor_payload_linear(skb, payload_off, payload_len, xor_key, xor_key_len, key_start);
+      if (err) {
+        atomic64_inc(&stat->packets_dropped);
+        pr_debug("skb_xor_payload_linear failed: %d\n", err);
+        err = NF_DROP;
+        goto err_cleanup;
+      }
+
+      RESTORE_SKB_POINTERS();
+
+      payload_sum = csum_partial(skb->data + payload_off, payload_len, 0);
+    } else {
+      payload_sum = recover_payload_csum_from_icmp(&old_icmp, ipv6, payload_len);
+    }
 
     pr_debug("payload sum: %04x\n", payload_sum);
     update_udp_cksum(ipv4, ipv6, &udp_hdr, payload_sum);
@@ -1053,6 +1239,8 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     err = NF_DROP;
     goto err_cleanup;
   }
+
+  RESTORE_SKB_POINTERS();
 
   {
     pr_debug("  Rebuilt UDP: %pI6:%5u -> %pI6:%5u, length: %u\n", &saddr, ntohs(udp_src), &daddr, ntohs(udp_dst), payload_len);
@@ -1172,7 +1360,6 @@ int tutu_clear_stats(void) {
 
 typedef bool (*tutu_gc_predicate)(const struct session_key *key, const struct session_value *value, void *ctx);
 
-/* called under rcu_read_lock(); no sleep or blocking ops allowed */
 static bool gc_session_check_age(const struct session_key *key, const struct session_value *value, void *ctx) {
   u32 session_max_age = 0;
 
