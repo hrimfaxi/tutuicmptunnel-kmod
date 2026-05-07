@@ -1065,6 +1065,11 @@ err_cleanup:
   return err;
 }
 
+static bool local_only = false;
+module_param(local_only, bool, 0444);
+MODULE_PARM_DESC(local_only, "If true, only intercept locally generated UDP traffic (mode: client only). Cannot be changed "
+                             "after module load. Default: false.");
+
 static struct nf_hook_ops ingress_hook_ops = {
   .hook     = ingress_hook_func,
   .pf       = NFPROTO_INET,
@@ -1072,10 +1077,17 @@ static struct nf_hook_ops ingress_hook_ops = {
   .priority = NF_IP_PRI_FIRST,
 };
 
-static struct nf_hook_ops egress_hook_ops = {
+static struct nf_hook_ops egress_hook_ops_post = {
   .hook     = egress_hook_func,
   .pf       = NFPROTO_INET,
   .hooknum  = NF_INET_POST_ROUTING,
+  .priority = NF_IP_PRI_LAST,
+};
+
+static struct nf_hook_ops egress_hook_ops_local = {
+  .hook     = egress_hook_func,
+  .pf       = NFPROTO_INET,
+  .hooknum  = NF_INET_LOCAL_OUT,
   .priority = NF_IP_PRI_LAST,
 };
 
@@ -1306,9 +1318,12 @@ static struct notifier_block g_netdev_notifier = {
   .notifier_call = netdev_event_handler,
 };
 
+static struct nf_hook_ops *egress_hook_registered = NULL;
+
 static int __init tutuicmptunnel_module_init(void) {
   int                     err;
   struct tutu_config_rcu *cfg_init;
+  struct nf_hook_ops     *egress_hook_to_register = NULL;
 
   if (!is_power_of_2(egress_peer_map_size) || !is_power_of_2(ingress_peer_map_size) || !is_power_of_2(session_map_size) ||
       egress_peer_map_size < 256 || ingress_peer_map_size < 256 || session_map_size < 256) {
@@ -1366,11 +1381,18 @@ static int __init tutuicmptunnel_module_init(void) {
 
   pr_debug("ingress hook registered.\n");
 
-  err = nf_register_net_hook(&init_net, &egress_hook_ops);
+  if (local_only) {
+    egress_hook_to_register = &egress_hook_ops_local;
+  } else {
+    egress_hook_to_register = &egress_hook_ops_post;
+  }
+
+  err = nf_register_net_hook(&init_net, egress_hook_to_register);
   if (err < 0) {
     pr_err("failed to register egress hook\n");
     goto err_unreg_ingress;
   }
+  egress_hook_registered = egress_hook_to_register;
 
   pr_debug("egress hook registered.\n");
   err = tutu_genl_init();
@@ -1387,7 +1409,9 @@ static int __init tutuicmptunnel_module_init(void) {
 err_genl_exit:
   tutu_genl_exit();
 err_unreg_egress:
-  nf_unregister_net_hook(&init_net, &egress_hook_ops);
+  if (egress_hook_registered)
+    nf_unregister_net_hook(&init_net, egress_hook_registered);
+  egress_hook_registered = NULL;
 err_unreg_ingress:
   nf_unregister_net_hook(&init_net, &ingress_hook_ops);
 err_free_cfg:
@@ -1414,7 +1438,7 @@ static void __exit tutuicmptunnel_module_exit(void) {
   unregister_netdevice_notifier(&g_netdev_notifier);
   cancel_delayed_work_sync(&g_reload_work);
   tutu_genl_exit();
-  nf_unregister_net_hook(&init_net, &egress_hook_ops);
+  nf_unregister_net_hook(&init_net, egress_hook_registered);
   nf_unregister_net_hook(&init_net, &ingress_hook_ops);
 
   old_cfg = set_new_config(NULL);
