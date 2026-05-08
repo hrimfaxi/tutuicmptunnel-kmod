@@ -18,7 +18,6 @@
 #include <linux/tcp.h>
 #include <linux/uaccess.h>
 #include <linux/udp.h>
-#include <linux/unaligned.h>
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
 
