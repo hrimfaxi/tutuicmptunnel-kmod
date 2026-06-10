@@ -1371,7 +1371,7 @@ static bool gc_session_check_age(const struct session_key *key, const struct ses
   __u64 now = ktime_get_seconds();
   __u64 age = value ? READ_ONCE(value->age) : 0;
 
-  if (!age || now - age >= session_max_age) {
+  if (!age || now < age || now - age >= session_max_age) {
     pr_debug("gc: age %llu too old: now is %llu\n", age, now);
     return true;
   }
