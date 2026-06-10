@@ -33,7 +33,7 @@
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
 
-#include "../common/net_proto.h"
+#include "net_proto.h"
 
 LIST_HEAD(tutu_ifname_list);
 DEFINE_MUTEX(tutu_ifname_lock);

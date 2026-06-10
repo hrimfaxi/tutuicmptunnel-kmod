@@ -20,7 +20,7 @@ typedef signed int         s32;
 typedef unsigned long long u64;
 typedef signed long long   s64;
 
-#include "net_proto.h"
+#include "../kmod/net_proto.h"
 
 typedef struct {
   u8  type;
