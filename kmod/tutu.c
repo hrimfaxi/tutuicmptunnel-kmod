@@ -382,7 +382,7 @@ static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, st
   __u64 age = value_ptr->age;
   __u64 now = ktime_get_seconds();
 
-  if (!age || now - age >= cfg->session_max_age) {
+  if (!age || now < age || now - age >= cfg->session_max_age) {
     // 太老，需要跳过并删除这个key
     pr_debug("session_map entry: age %llu too old: now is %llu\n", age, now);
     tutu_map_delete_elem(session_map, lookup_key);
