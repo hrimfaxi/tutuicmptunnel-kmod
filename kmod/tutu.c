@@ -142,7 +142,8 @@ int ifset_reload_config(void) {
 
   mutex_lock(&g_ifset_mutex);
   oldcfg = rcu_replace_pointer(g_ifset, newcfg, lockdep_is_held(&g_ifset_mutex));
-  kfree_rcu(oldcfg, rcu);
+  if (oldcfg)
+    kfree_rcu(oldcfg, rcu);
   mutex_unlock(&g_ifset_mutex);
   return 0;
 }
@@ -1358,7 +1359,8 @@ int tutu_set_config(const struct tutu_config *in) {
   new_cfg->inner = *in;
 
   old_cfg = set_new_config(new_cfg);
-  kfree_rcu(old_cfg, rcu);
+  if (old_cfg)
+    kfree_rcu(old_cfg, rcu);
 
   return 0;
 }
@@ -1650,7 +1652,8 @@ err_unreg_ingress:
   nf_unregister_net_hook(&init_net, &ingress_hook_ops);
 err_free_cfg:
   cfg_init = set_new_config(NULL);
-  kfree_rcu(cfg_init, rcu);
+  if (cfg_init)
+    kfree_rcu(cfg_init, rcu);
 err_free_user_map:
   tutu_map_free(user_map);
 err_free_session_map:
@@ -1676,7 +1679,8 @@ static void __exit tutuicmptunnel_module_exit(void) {
   nf_unregister_net_hook(&init_net, &ingress_hook_ops);
 
   old_cfg = set_new_config(NULL);
-  kfree_rcu(old_cfg, rcu);
+  if (old_cfg)
+    kfree_rcu(old_cfg, rcu);
 
   tutu_map_free(user_map);
   tutu_map_free(session_map);
