@@ -171,29 +171,35 @@ err_cleanup:
   return err;
 }
 
-/* --- 内部辅助：Lookup 回调 --- */
-static int single_data_cb(const struct nlmsghdr *nlh, void *data) {
-  struct nlattr *attr;
+/* 用于接收单条回复的上下文，包含期望的属性类型、长度和输出缓冲区 */
+struct single_data_ctx {
+  int    expected_attr; /* 期望的 Netlink 属性类型 */
+  size_t expected_len;  /* 期望的载荷长度 */
+  void  *out;           /* 输出缓冲区指针 */
+};
 
-  /*
-   * 修正点：
-   * 使用 mnl_attr_for_each 宏来遍历属性。
-   * 参数3 (offset): 必须跳过 Generic Netlink 头部 (sizeof(struct genlmsghdr))
-   */
+static int single_data_cb(const struct nlmsghdr *nlh, void *data) {
+  struct single_data_ctx *ctx = data;
+  struct nlattr          *attr;
+
   mnl_attr_for_each(attr, nlh, sizeof(struct genlmsghdr)) {
-    /*
-     * 这里我们假设内核只回传了一个属性（例如 TUTU_ATTR_CONFIG），
-     * 或者我们只关心第一个属性。
-     */
-    if (data) {
-      memcpy(data, mnl_attr_get_payload(attr), mnl_attr_get_payload_len(attr));
+    /* 检查属性类型是否匹配 */
+    if (mnl_attr_get_type(attr) != ctx->expected_attr)
+      continue;
+
+    /* 检查载荷长度是否匹配期望值 */
+    if (mnl_attr_get_payload_len(attr) != ctx->expected_len) {
+      log_error("netlink attribute length mismatch: expected %zu, got %u", ctx->expected_len, mnl_attr_get_payload_len(attr));
+      return MNL_CB_ERROR;
     }
 
-    /* 拿到第一个属性后，直接返回，不再继续遍历 */
-    return MNL_CB_OK;
+    /* 复制到输出缓冲区 */
+    if (ctx->out) {
+      memcpy(ctx->out, mnl_attr_get_payload(attr), ctx->expected_len);
+    }
   }
 
-  return MNL_CB_OK;
+  return MNL_CB_ERROR;
 }
 
 static int set_config_map(const struct tutu_config *cfg) {
@@ -218,14 +224,15 @@ static int delete_user_info_map(__u8 uid) {
 }
 
 /*
- * 通用函数：发送 GET 请求并接收同步响应
- * cmd:       命令字 (TUTU_CMD_...)
- * attr_type: 属性类型 (TUTU_ATTR_...)，仅在 in_data 存在时使用
- * in_data:   发送给内核的数据 (Key)，可为 NULL
- * in_len:    发送数据的长度
- * out_data:  用于接收内核回传数据的缓冲区指针
+ * 通用函数：发送 GET 请求并接收同步响应（带输出长度校验）
+ * cmd:        命令字 (TUTU_CMD_...)
+ * attr_type:  属性类型 (TUTU_ATTR_...)，用于请求和响应
+ * in_data:    发送给内核的数据 (Key)，可为 NULL
+ * in_len:     发送数据的长度
+ * out_data:   用于接收内核回传数据的缓冲区
+ * out_len:    缓冲区大小（期望的响应数据长度）
  */
-static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_t in_len, void *out_data) {
+static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_t in_len, void *out_data, size_t out_len) {
   char               buf[MNL_SOCKET_BUFFER_SIZE];
   struct nlmsghdr   *nlh;
   struct genlmsghdr *genl;
@@ -254,29 +261,31 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
   try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
   err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
   /* 使用 single_data_cb 解析回包，将结果填入 out_data */
-  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data));
+  struct single_data_ctx ctx = {
+    .expected_attr = attr_type,
+    .expected_len  = out_len,
+    .out           = out_data,
+  };
+
+  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, &ctx));
   err = 0;
 
 err_cleanup:
   return err;
 }
 
-/*
- * Lookup: 既发送数据 (Key)，也接收数据 (Value 回填到 data)
- */
-static int lookup_map(int cmd, int attr_type, void *data, size_t len) {
-  /* 输入和输出都使用同一个 data 指针 */
-  return send_and_recv_data(cmd, attr_type, data, len, data);
-}
-
 static int get_config_map(struct tutu_config *cfg) {
-  // 只接收数据，不发参数
-  return send_and_recv_data(TUTU_CMD_GET_CONFIG, 0, NULL, 0, cfg);
+  return send_and_recv_data(TUTU_CMD_GET_CONFIG, TUTU_ATTR_CONFIG, NULL, 0, cfg, sizeof(*cfg));
 }
 
 static int get_stats_map(struct tutu_stats *stats) {
-  // 只接收数据，不发参数
-  return send_and_recv_data(TUTU_CMD_GET_STATS, 0, NULL, 0, stats);
+  return send_and_recv_data(TUTU_CMD_GET_STATS, TUTU_ATTR_STATS, NULL, 0, stats, sizeof(*stats));
+}
+
+/* Lookup: 既发送数据 (Key)，也接收数据 (Value 回填到 data) */
+static int lookup_map(int cmd, int attr_type, void *data, size_t len) {
+  /* 输入和输出使用同一个 data 指针，传入相同的长度 */
+  return send_and_recv_data(cmd, attr_type, data, len, data, len);
 }
 
 static int set_egress_peer_map(const struct egress_peer_key *key, const struct egress_peer_value *value) {
