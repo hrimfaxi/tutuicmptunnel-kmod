@@ -36,7 +36,7 @@ enum {
   TUTU_CMD_IFNAME_ADD,
   TUTU_CMD_IFNAME_DEL,
 
-  TUTU_CMD_MAX,
+  __TUTU_CMD_MAX,
 };
 
 #define TUTU_CMD_MAX     (__TUTU_CMD_MAX - 1)
@@ -55,10 +55,10 @@ enum {
 
   TUTU_ATTR_IFNAME_NAME, /* String */
 
-  TUTU_ATTR_MAX,
+  __TUTU_ATTR_MAX,
 };
 
-#define TUTU_ATTR_MAX (TUTU_ATTR_MAX - 1)
+#define TUTU_ATTR_MAX (__TUTU_ATTR_MAX - 1)
 
 #define TUTU_GENL_FAMILY_NAME "tutuicmptunnel"
 #define TUTU_GENL_VERSION     0x1
