@@ -97,9 +97,9 @@ static int get_family_id_internal(struct mnl_socket *nl, const char *family_name
 
   mnl_attr_put_strz(nlh, CTRL_ATTR_FAMILY_NAME, family_name);
 
-  try2(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len));
-  err = try2(mnl_socket_recvfrom(nl, buf, sizeof(buf)));
-  try2(mnl_cb_run(buf, err, 0, mnl_socket_get_portid(nl), ctrl_cb, &id));
+  try2_e(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len));
+  err = try2_e(mnl_socket_recvfrom(nl, buf, sizeof(buf)));
+  try2_e(mnl_cb_run(buf, err, 0, mnl_socket_get_portid(nl), ctrl_cb, &id));
   *family_id = id;
   err        = 0;
 
@@ -120,8 +120,8 @@ static int init_tutuicmptunnel(void) {
 
   deinit_tutuicmptunnel();
   g_nl = try2_p(mnl_socket_open(NETLINK_GENERIC));
-  try2(mnl_socket_bind(g_nl, 0, MNL_SOCKET_AUTOPID));
-  try2(get_family_id_internal(g_nl, TUTU_GENL_FAMILY_NAME, &g_family_id));
+  try2_e(mnl_socket_bind(g_nl, 0, MNL_SOCKET_AUTOPID));
+  try2_e(get_family_id_internal(g_nl, TUTU_GENL_FAMILY_NAME, &g_family_id));
   if (!g_family_id) {
     err = -EINVAL;
     goto err_cleanup;
@@ -162,9 +162,9 @@ static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len,
     mnl_attr_put(nlh, attr_type, len, data);
   }
 
-  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
-  err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
-  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL));
+  try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
+  err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
+  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL));
   err = 0;
 
 err_cleanup:
@@ -232,8 +232,7 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
   int                err;
 
   if (!g_nl) {
-    errno = EBADF;
-    return -1;
+    return -EBADF;
   }
 
   memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
@@ -252,10 +251,10 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
     mnl_attr_put(nlh, attr_type, in_len, in_data);
   }
 
-  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
-  err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
+  try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
+  err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
   /* 使用 single_data_cb 解析回包，将结果填入 out_data */
-  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data));
+  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, out_data));
   err = 0;
 
 err_cleanup:
@@ -361,10 +360,10 @@ static int tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, voi
   genl->cmd        = cmd;
   genl->version    = TUTU_GENL_VERSION;
 
-  try2(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
+  try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
 
-  while ((err = try2(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)))) > 0) {
-    err = try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx));
+  while ((err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)))) > 0) {
+    err = try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx));
     if (err <= 0) /* EOF or error */
       break;
   }
