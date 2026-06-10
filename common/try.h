@@ -64,7 +64,6 @@
     _ret;                                                                                                                      \
   })
 
-
 // `try` but `err_cleanup`.
 #define try2(expr, ...)                                                                                                        \
   ({                                                                                                                           \

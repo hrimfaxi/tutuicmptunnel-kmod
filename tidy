@@ -1,0 +1,3 @@
+#!/bin/sh
+
+clang-format -i kmod/*.[ch] common/*.[ch] ktuctl/*.[ch] tucrypto/*.[ch] win32/*.[ch] tuserver/*.[ch]
