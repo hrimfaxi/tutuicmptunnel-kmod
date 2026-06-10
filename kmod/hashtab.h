@@ -25,10 +25,17 @@ struct htab_elem {
 };
 
 struct tutu_htab *tutu_map_alloc(u32 key_size, u32 value_size, u32 max_entries);
-void             *tutu_map_lookup_elem(struct tutu_htab *htab, void *key);
-int               tutu_map_get_next_key(struct tutu_htab *htab, void *key, void *next_key);
-int               tutu_map_update_elem(struct tutu_htab *htab, void *key, void *value, u64 map_flags);
-int               tutu_map_delete_elem(struct tutu_htab *htab, void *key);
-void              tutu_map_free(struct tutu_htab *htab);
+
+/* 以下接口要求调用者持有 rcu_read_lock()：
+ *   - tutu_map_lookup_elem
+ *   - tutu_map_get_next_key
+ *   - tutu_map_update_elem
+ *   - tutu_map_delete_elem
+ */
+void *tutu_map_lookup_elem(struct tutu_htab *htab, void *key);
+int   tutu_map_get_next_key(struct tutu_htab *htab, void *key, void *next_key);
+int   tutu_map_update_elem(struct tutu_htab *htab, void *key, void *value, u64 map_flags);
+int   tutu_map_delete_elem(struct tutu_htab *htab, void *key);
+void  tutu_map_free(struct tutu_htab *htab);
 
 // vim: set sw=2 ts=2 expandtab:
