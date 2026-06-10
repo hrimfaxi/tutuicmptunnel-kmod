@@ -550,7 +550,7 @@ static int handle_iface_op_nl(int argc, char **argv, bool is_add, const char *ac
       action_performed = true;
       if (err < 0) {
         // 如果是删除且返回 ENOENT，通常可以忽略或报 Warning
-        if (!is_add && errno == ENOENT) {
+        if (!is_add && err == -ENOENT) {
           log_warn("Interface %s not found in list.", ifname);
           err = 0;
         } else {
@@ -852,7 +852,7 @@ int cmd_client_add(int argc, char **argv) {
   err = set_ingress_peer_map(&ingress.key, &ingress.value);
 
   if (err < 0) { /* Netlink 封装函数出错返回 -1 */
-    if (errno == EEXIST) {
+    if (err == -EEXIST) {
       /* Lookup 也失败了 (这种情况比较少见，可能是权限或并发删除) */
       try2(lookup_ingress_peer_map(&ingress), _("lookup ingress failed: %s"), strerrno);
 
