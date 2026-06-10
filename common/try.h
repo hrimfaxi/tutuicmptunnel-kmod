@@ -19,15 +19,10 @@
 
 #define redecl_ok(type, name, off, skb)   redecl_skb(type, name, off, skb, TC_ACT_OK)
 #define redecl_shot(type, name, off, skb) redecl_skb(type, name, off, skb, TC_ACT_SHOT)
-#define redecl_pass(type, name, off, xdp) redecl_xdp(type, name, off, xdp, XDP_PASS)
-#define redecl_drop(type, name, off, xdp) redecl_xdp(type, name, off, xdp, XDP_DROP)
 
 #define decl_skb(type, name, off, ctx, ret) type *redecl_skb(type, name, off, ctx, ret)
-#define decl_xdp(type, name, off, ctx, ret) type *redecl_xdp(type, name, off, ctx, ret)
 #define decl_ok(type, name, off, skb)       decl_skb(type, name, off, skb, TC_ACT_OK)
 #define decl_shot(type, name, off, skb)     decl_skb(type, name, off, skb, TC_ACT_SHOT)
-#define decl_pass(type, name, off, xdp)     decl_xdp(type, name, off, xdp, XDP_PASS)
-#define decl_drop(type, name, off, xdp)     decl_xdp(type, name, off, xdp, XDP_DROP)
 
 #define _get_macro(_0, _1, _2, _3, _4, _5, NAME, ...) NAME
 
@@ -69,23 +64,6 @@
     _ret;                                                                                                                      \
   })
 
-// Same as `try` with one arguments, but runs XDP subroutine
-#define try_tc(expr)                                                                                                           \
-  ({                                                                                                                           \
-    long _ret = (expr);                                                                                                        \
-    if (unlikely(_ret != TC_ACT_OK))                                                                                           \
-      return _ret;                                                                                                             \
-    _ret;                                                                                                                      \
-  })
-
-// Same as `try` with one arguments, but runs XDP subroutine
-#define try_xdp(expr)                                                                                                          \
-  ({                                                                                                                           \
-    long _ret = (expr);                                                                                                        \
-    if (unlikely(_ret != XDP_PASS))                                                                                            \
-      return _ret;                                                                                                             \
-    _ret;                                                                                                                      \
-  })
 
 // `try` but `err_cleanup`.
 #define try2(expr, ...)                                                                                                        \
@@ -156,8 +134,6 @@
 
 #define try_ok(x)   try_ret(x, TC_ACT_OK)
 #define try_shot(x) try_ret(x, TC_ACT_SHOT)
-#define try_pass(x) try_ret(x, XDP_PASS)
-#define try_drop(x) try_ret(x, XDP_DROP)
 
 #define try2_ret(expr, retval, ...)                                                                                            \
   ({                                                                                                                           \
@@ -192,8 +168,6 @@
 
 #define try_p_ok(x)   try_p_ret(x, TC_ACT_OK)
 #define try_p_shot(x) try_p_ret(x, TC_ACT_SHOT)
-#define try_p_pass(x) try_p_ret(x, XDP_PASS)
-#define try_p_drop(x) try_p_ret(x, XDP_DROP)
 
 #define strret   strerror(-_ret)
 #define strerrno strerror(errno)
