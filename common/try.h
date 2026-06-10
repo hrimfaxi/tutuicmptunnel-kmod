@@ -53,8 +53,6 @@
     goto err_cleanup;                                                                                                          \
   })
 
-#define _get_macro(_0, _1, _2, _3, _4, _5, NAME, ...) NAME
-
 // Tests int return value from a function. Used for functions that returns non-zero error.
 #define try(expr, ...)                                                                                                         \
   ({                                                                                                                           \
