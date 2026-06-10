@@ -826,8 +826,7 @@ int cmd_client_add(int argc, char **argv) {
       goto err_cleanup;
     }
 
-    strncpy((char *) egress.value.comment, comment, sizeof(egress.value.comment));
-    egress.value.comment[sizeof(egress.value.comment) - 1] = '\0';
+    snprintf((char *) egress.value.comment, sizeof(egress.value.comment), "%s", comment);
   }
 
   ingress = (typeof(ingress)) {
@@ -1183,8 +1182,7 @@ int cmd_server_add(int argc, char **argv) {
       goto err_cleanup;
     }
 
-    strncpy((char *) user.comment, comment, sizeof(user.comment));
-    user.comment[sizeof(user.comment) - 1] = '\0';
+    snprintf((char *) user.comment, sizeof(user.comment), "%s", comment);
   }
 
   struct tutu_user_info user_info = {
