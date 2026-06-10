@@ -1335,6 +1335,15 @@ static struct tutu_config_rcu *set_new_config(struct tutu_config_rcu *newcfg) {
 int tutu_set_config(const struct tutu_config *in) {
   struct tutu_config_rcu *new_cfg, *old_cfg;
 
+  if (!in)
+    return -EINVAL;
+
+  if (in->session_max_age == 0)
+    return -EINVAL;
+
+  if (in->is_server != 0 && in->is_server != 1)
+    return -EINVAL;
+
   new_cfg = kzalloc(sizeof(*new_cfg), GFP_KERNEL);
   if (!new_cfg)
     return -ENOMEM;
