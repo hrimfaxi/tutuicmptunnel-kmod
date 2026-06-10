@@ -712,7 +712,7 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
   if (ipv4) {
     // UDP payload length
     u16 udp_payload_len = ntohs(udp->len) - sizeof(*udp);
-    pr_debug("Outgoing UDP: %pI4:%5d -> %pI4:%5d, length: %u\n", &ipv4->saddr, ntohs(udp->source), &ipv4->daddr,
+    pr_debug("Outgoing UDP: %pI4:%5u -> %pI4:%5u, length: %u\n", &ipv4->saddr, ntohs(udp->source), &ipv4->daddr,
              ntohs(udp->dest), udp_payload_len);
   } else if (ipv6) {
     u16 udp_payload_len = ntohs(udp->len) - sizeof(*udp);
