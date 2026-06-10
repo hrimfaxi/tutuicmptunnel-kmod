@@ -1071,6 +1071,9 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
   __be16 icmp_seq = icmp->un.echo.sequence;
   __be16 icmp_id  = icmp->un.echo.id;
 
+  // udp源端口, 为0说明不合法(可能为ping产生), 直接丢弃
+  try2_ok(icmp_seq != 0 ? 0 : -1);
+
   struct user_info *user = NULL;
 
   const __u8 *xor_key     = NULL;
