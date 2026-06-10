@@ -1617,9 +1617,13 @@ static int __init tutuicmptunnel_module_init(void) {
   if (err)
     goto err_genl_exit;
 
-  tutu_gc_start(1);
+  err = tutu_gc_start(1);
+  if (err)
+    goto err_unregister_netdevice_notifier;
   return 0;
 
+err_unregister_netdevice_notifier:
+  unregister_netdevice_notifier(&g_netdev_notifier);
 err_genl_exit:
   tutu_genl_exit();
 err_unreg_egress:
