@@ -14,7 +14,6 @@
 
 int ipv4_to_in6addr(__be32 ipv4, struct in6_addr *ip6);
 int ipv6_ntop(char ipstr[INET6_ADDRSTRLEN], const struct in6_addr *ipv6);
-int ipv4_to_in6addr(__be32 ipv4, struct in6_addr *ip6);
 int inaddr6_is_mapped_ipv4(const struct in6_addr *ipv6);
 
 typedef struct uid_map_st {
