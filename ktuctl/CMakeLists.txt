@@ -26,18 +26,14 @@ set(SOURCES
 
 get_filename_component(PROG_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
-include_directories(../common ../kmod ${CMAKE_CURRENT_SOURCE_DIR})
-add_definitions(-DPROG_NAME=${PROG_NAME})
 add_executable(${PROG_NAME} ${SOURCES}
   ${BISON_ScriptParser_OUTPUTS} ${FLEX_ScriptScanner_OUTPUTS}
   ${BISON_UidParser_OUTPUTS} ${FLEX_UidScanner_OUTPUTS}
 )
 
-target_include_directories(${PROG_NAME} PRIVATE
-  ${LIBMNL_INCLUDE_DIRS}
-)
-
+target_include_directories(${PROG_NAME} PRIVATE ../common ../kmod ${CMAKE_CURRENT_SOURCE_DIR} ${LIBMNL_INCLUDE_DIRS})
 target_compile_options(${PROG_NAME} PRIVATE
+  -DPROG_NAME=${PROG_NAME}
   ${LIBMNL_CFLAGS_OTHER}
 )
 
