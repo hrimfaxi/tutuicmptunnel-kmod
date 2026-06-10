@@ -392,13 +392,12 @@ static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, st
   // 此时需要更新下会话的寿命，否则过了update_interval会话就消失
   // 可以过1秒才更新，避免大量包造成过大压力
   if (now - age >= 1) {
-    int err;
-
-    value_ptr->age = now;
-    err            = tutu_map_update_elem(session_map, lookup_key, value_ptr, TUTU_EXIST);
-    (void) err;
+    struct session_value new_value = *value_ptr;
+    new_value.age                  = now;
+    int err                        = tutu_map_update_elem(session_map, lookup_key, &new_value, TUTU_EXIST);
     pr_debug("session updated: age: %llu: %d\n", now, err);
   }
+
   return 0;
 }
 
@@ -1101,9 +1100,14 @@ static unsigned int ingress_hook_func(void *priv, struct sk_buff *skb, const str
     // 优化：只有发生变化才需要更新user_map
     // icmp_id：客户端更新了icmp_id，此时需要更新
     if (user->icmp_id != icmp_id) {
-      user->icmp_id = icmp_id;
-      // Update user info
-      tutu_map_update_elem(user_map, &uid, user, TUTU_EXIST);
+      struct user_info new_user = *user;
+
+      new_user.icmp_id = icmp_id;
+      err              = tutu_map_update_elem(user_map, &uid, &new_user, TUTU_EXIST);
+      pr_debug("user_map updated: uid: %u, icmp_id: %u, %d\n", uid, icmp_id, err);
+
+      /* 重新 lookup 获取最新 user 信息，确保后续使用的字段都是更新后的 */
+      user = try2_p_ok(tutu_map_lookup_elem(user_map, &uid), "cannot get user: %u\n", uid);
     }
 
     // 需要更新session_map
