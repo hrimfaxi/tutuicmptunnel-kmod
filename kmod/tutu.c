@@ -16,6 +16,7 @@
 #include <linux/percpu.h>
 #include <linux/rcupdate.h>
 #include <linux/tcp.h>
+#include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/udp.h>
 #include <net/checksum.h>
@@ -31,6 +32,8 @@
 #include "defs.h"
 #include "hashtab.h"
 #include "tutuicmptunnel.h"
+
+#include "../common/net_proto.h"
 
 LIST_HEAD(tutu_ifname_list);
 DEFINE_MUTEX(tutu_ifname_lock);

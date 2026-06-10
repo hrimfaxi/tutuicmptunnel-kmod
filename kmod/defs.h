@@ -1,11 +1,5 @@
 #pragma once
 
-#define ICMP_ECHO_REQUEST 8
-#define ICMP_ECHO_REPLY   0
-
-#define ICMP6_ECHO_REQUEST 128
-#define ICMP6_ECHO_REPLY   129
-
 // Jumps to `err_cleanup`, returning _ret while printing error.
 //
 // Requires `err_cleanup` label, `err` to be defined inside function scope, and `err` to be
