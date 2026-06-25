@@ -753,7 +753,8 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
       goto err_cleanup;
     }
 
-    uid = value_ptr->uid;
+    uid      = value_ptr->uid;
+    icmp_seq = value_ptr->client_sport;
     try2_ok(check_age(cfg, &lookup_key, value_ptr), "check age: %ld\n", _ret);
     user = try2_p_ok(tutu_map_lookup_elem(user_map, &uid), "invalid uid: %u\n", uid);
 
@@ -764,7 +765,6 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     }
 
     icmp_id     = user->icmp_id;
-    icmp_seq    = value_ptr->client_sport;
     xor_key     = user->xor_key;
     xor_key_len = user->xor_key_len;
   } else {
