@@ -393,7 +393,7 @@ static __wsum recover_payload_csum_from_icmp(struct icmphdr *icmp, struct ipv6hd
 // 检查并删除过期会话
 static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, struct session_value *value_ptr) {
   // 检查下age
-  __u64 age = value_ptr->age;
+  __u64 age = READ_ONCE(value_ptr->age);
   __u64 now = ktime_get_seconds();
 
   if (!age || now < age || now - age >= cfg->session_max_age) {
@@ -405,11 +405,13 @@ static int check_age(struct tutu_config *cfg, struct session_key *lookup_key, st
 
   // 此时需要更新下会话的寿命，否则过了update_interval会话就消失
   // 可以过1秒才更新，避免大量包造成过大压力
+  /* 原位刷新 age，避免按 key 执行 map_update(TUTU_EXIST)。
+   * 若旧 session 被并发删除且同 key 新 session 已创建，按 key 更新会把
+   * 旧 value 的其他字段覆盖到新元素上。
+   */
   if (now - age >= 1) {
-    struct session_value new_value = *value_ptr;
-    new_value.age                  = now;
-    int err                        = tutu_map_update_elem(session_map, lookup_key, &new_value, TUTU_EXIST);
-    pr_debug("session updated: age: %llu: %d\n", now, err);
+    WRITE_ONCE(value_ptr->age, now);
+    pr_debug("session updated: age: %llu\n", now);
   }
 
   return 0;
@@ -627,7 +629,8 @@ static int update_session_map(struct user_info *user, u8 uid, __be16 icmp_seq) {
   if (exist) {
     bool client_sport_changed = exist->client_sport != icmp_seq;
     bool uid_changed          = exist->uid != uid;
-    bool age_exceed_1s        = (now > exist->age) && (now - exist->age > 1);
+    __u64 exist_age           = READ_ONCE(exist->age);
+    bool age_exceed_1s        = (now > exist_age) && (now - exist_age > 1);
 
     // 若没有变化且未超过 1 秒，不更新
     if (!client_sport_changed && !uid_changed && !age_exceed_1s) {
