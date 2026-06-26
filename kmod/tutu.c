@@ -533,9 +533,10 @@ module_param(force_sw_checksum, int, 0644);
 MODULE_PARM_DESC(force_sw_checksum, "Force software checksum calculation for all ICMP packets");
 
 static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_hdr_len, u32 ip_proto_offset, u32 l4_offset) {
-  u8   ip_proto;
-  bool use_partial;
-  int  err;
+  u8     ip_proto;
+  bool   use_partial;
+  int    err;
+  size_t icmp_len, writable_len;
 
   // parse_headers() 已保证偏移量在 skb 范围内
   ip_proto = skb->data[ip_proto_offset];
@@ -550,7 +551,6 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
   if (ip_type == 4 && ip_proto == IPPROTO_ICMP) {
     struct iphdr   *iph = ip_hdr(skb);
     struct icmphdr *icmph;
-    size_t          icmp_len;
 
     if (ntohs(iph->tot_len) < ip_hdr_len)
       return -EINVAL;
@@ -559,29 +559,32 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
     if (icmp_len < sizeof(*icmph))
       return -EINVAL;
 
-    if (!use_partial) {
-      err = skb_ensure_writable(skb, l4_offset + icmp_len);
-      if (unlikely(err))
-        return err;
+    writable_len = l4_offset + (use_partial ? sizeof(*icmph) : icmp_len);
+    err          = skb_ensure_writable(skb, writable_len);
+    if (unlikely(err))
+      return err;
 
-      icmph           = (struct icmphdr *) (skb->data + l4_offset);
+    // iph后面未使用不用更新
+    icmph = (struct icmphdr *) (skb->data + l4_offset);
+
+    if (use_partial) {
+      /*
+       * CHECKSUM_PARTIAL 下的 ICMPv4：
+       * ICMPv4 校验和只覆盖 ICMP 头和数据，不包含 IPv4 pseudo-header，
+       * 因此这里把 checksum 字段清零即可，硬件从 csum_start 算到包尾后
+       * 写回的就是最终校验和。
+       */
+      icmph->checksum  = 0;
+      skb->csum_offset = offsetof(struct icmphdr, checksum);
+    } else {
       icmph->checksum = 0;
       icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
       skb->ip_summed  = CHECKSUM_UNNECESSARY;
-    } else {
-      err = skb_ensure_writable(skb, l4_offset + sizeof(*icmph));
-      if (unlikely(err))
-        return err;
-
-      icmph            = (struct icmphdr *) (skb->data + l4_offset);
-      icmph->checksum  = 0;
-      skb->csum_offset = offsetof(struct icmphdr, checksum);
     }
   } else if (ip_type == 6 && ip_proto == IPPROTO_ICMPV6) {
     struct ipv6hdr  *ip6h = ipv6_hdr(skb);
     struct icmp6hdr *icmp6h;
-    unsigned int     ext_hdr_len;
-    unsigned int     icmp_len;
+    size_t           ext_hdr_len;
 
     // parse_headers() 已保证 ip_hdr_len >= sizeof(struct ipv6hdr)
     ext_hdr_len = ip_hdr_len - sizeof(struct ipv6hdr);
@@ -592,27 +595,31 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
     if (icmp_len < sizeof(*icmp6h))
       return -EINVAL;
 
-    if (!use_partial) {
+    writable_len = l4_offset + (use_partial ? sizeof(*icmp6h) : icmp_len);
+    err          = skb_ensure_writable(skb, writable_len);
+    if (unlikely(err))
+      return err;
+
+    ip6h   = ipv6_hdr(skb);
+    icmp6h = (struct icmp6hdr *) (skb->data + l4_offset);
+
+    if (use_partial) {
+      /*
+       * CHECKSUM_PARTIAL 下的 ICMPv6：
+       * 硬件通常只计算从 csum_start 到包尾的校验和，但 ICMPv6 校验和
+       * 还必须包含 IPv6 pseudo-header。因此这里不能清零，而要先写入
+       * pseudo-header 的补偿值，这样硬件再累加 ICMPv6 头和数据后，
+       * 得到的才是最终校验和。
+       */
+      icmp6h->icmp6_cksum = ~csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, 0);
+      skb->csum_offset    = offsetof(struct icmp6hdr, icmp6_cksum);
+    } else {
       __wsum csum;
 
-      err = skb_ensure_writable(skb, l4_offset + icmp_len);
-      if (unlikely(err))
-        return err;
-
-      ip6h                = ipv6_hdr(skb);
-      icmp6h              = (struct icmp6hdr *) (skb->data + l4_offset);
       icmp6h->icmp6_cksum = 0;
       csum                = csum_partial((char *) icmp6h, (int) icmp_len, 0);
       icmp6h->icmp6_cksum = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, csum);
       skb->ip_summed      = CHECKSUM_UNNECESSARY;
-    } else {
-      err = skb_ensure_writable(skb, l4_offset + sizeof(*icmp6h));
-      if (unlikely(err))
-        return err;
-
-      icmp6h              = (struct icmp6hdr *) (skb->data + l4_offset);
-      icmp6h->icmp6_cksum = 0;
-      skb->csum_offset    = offsetof(struct icmp6hdr, icmp6_cksum);
     }
   }
 
