@@ -320,6 +320,10 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
       if (!ipv6_ext_hdr(next_hdr))
         break;
 
+      /* 不处理IPv6分片包: 非首分片无L4头, 首分片转换后无法再分片 */
+      if (next_hdr == NEXTHDR_FRAGMENT)
+        return err;
+
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
         return err;
 
