@@ -783,6 +783,13 @@ static unsigned int egress_hook_func(void *priv, struct sk_buff *skb, const stru
     try2_ok(check_age(cfg, &lookup_key, value_ptr), "check age: %ld\n", _ret);
     user = try2_p_ok(tutu_map_lookup_elem(user_map, &uid), "invalid uid: %u\n", uid);
 
+    if (skb_is_gso(skb)) {
+      pr_debug("cannot handle GSO packets: length %u\n", skb->len);
+      atomic64_inc(&stat->gso);
+      err = NF_DROP;
+      goto err_cleanup;
+    }
+
     if (ipv4) {
       icmp_type = ICMP_ECHO_REPLY;
     } else if (ipv6) {
