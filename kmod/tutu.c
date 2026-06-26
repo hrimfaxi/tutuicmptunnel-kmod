@@ -316,6 +316,8 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
     /* 遍历扩展头（最多 8 层，避免死循环） */
     for (i = 0; i < 8; i++) {
       struct ipv6_opt_hdr *opt_hdr;
+      u32                  hdr_bytes;
+      u8                   hdr_nexthdr;
 
       if (!ipv6_ext_hdr(next_hdr))
         break;
@@ -333,14 +335,16 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
         return err;
 
-      opt_hdr = (typeof(opt_hdr)) (skb->data + current_hdr_start);
+      opt_hdr      = (struct ipv6_opt_hdr *) (skb->data + current_hdr_start);
+      hdr_nexthdr  = opt_hdr->nexthdr;
+      hdr_bytes    = (opt_hdr->hdrlen + 1) << 3;
+
+      if (!pskb_may_pull(skb, current_hdr_start + hdr_bytes))
+        return err;
 
       // 更新协议字段偏移量为当前扩展头的 nexthdr 字段的偏移量
       local_proto_offset = current_hdr_start + offsetof(struct ipv6_opt_hdr, nexthdr);
-      next_hdr           = opt_hdr->nexthdr;
-      u32 hdr_bytes      = (opt_hdr->hdrlen + 1) << 3;
-      if (!pskb_may_pull(skb, current_hdr_start + hdr_bytes))
-        return err;
+      next_hdr           = hdr_nexthdr;
       current_hdr_start += hdr_bytes;
     }
 
