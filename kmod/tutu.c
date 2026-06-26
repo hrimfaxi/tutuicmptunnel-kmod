@@ -328,16 +328,15 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
        * - ESP:      不具有标准扩展头格式
        * - NONE:     无后续负载，不应作为扩展头继续解析
        */
-      if (next_hdr == NEXTHDR_FRAGMENT || next_hdr == NEXTHDR_AUTH ||
-          next_hdr == NEXTHDR_ESP || next_hdr == NEXTHDR_NONE)
+      if (next_hdr == NEXTHDR_FRAGMENT || next_hdr == NEXTHDR_AUTH || next_hdr == NEXTHDR_ESP || next_hdr == NEXTHDR_NONE)
         return err;
 
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
         return err;
 
-      opt_hdr      = (struct ipv6_opt_hdr *) (skb->data + current_hdr_start);
-      hdr_nexthdr  = opt_hdr->nexthdr;
-      hdr_bytes    = (opt_hdr->hdrlen + 1) << 3;
+      opt_hdr     = (struct ipv6_opt_hdr *) (skb->data + current_hdr_start);
+      hdr_nexthdr = opt_hdr->nexthdr;
+      hdr_bytes   = (opt_hdr->hdrlen + 1) << 3;
 
       if (!pskb_may_pull(skb, current_hdr_start + hdr_bytes))
         return err;
@@ -628,10 +627,10 @@ static int update_session_map(struct user_info *user, u8 uid, __be16 icmp_seq) {
   struct session_value *exist = tutu_map_lookup_elem(session_map, &key);
 
   if (exist) {
-    bool client_sport_changed = exist->client_sport != icmp_seq;
-    bool uid_changed          = exist->uid != uid;
-    __u64 exist_age           = READ_ONCE(exist->age);
-    bool age_exceed_1s        = (now > exist_age) && (now - exist_age > 1);
+    bool  client_sport_changed = exist->client_sport != icmp_seq;
+    bool  uid_changed          = exist->uid != uid;
+    __u64 exist_age            = READ_ONCE(exist->age);
+    bool  age_exceed_1s        = (now > exist_age) && (now - exist_age > 1);
 
     // 若没有变化且未超过 1 秒，不更新
     if (!client_sport_changed && !uid_changed && !age_exceed_1s) {
