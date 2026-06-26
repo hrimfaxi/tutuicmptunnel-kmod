@@ -320,8 +320,14 @@ static int parse_headers(struct sk_buff *skb, u32 *ip_type, u32 *l2_len, u32 *ip
       if (!ipv6_ext_hdr(next_hdr))
         break;
 
-      /* 不处理IPv6分片包: 非首分片无L4头, 首分片转换后无法再分片 */
-      if (next_hdr == NEXTHDR_FRAGMENT)
+      /* 以下扩展头无法按 ipv6_opt_hdr 通用规则安全解析，直接拒绝：
+       * - FRAGMENT: 长度规则不同，且分片包无法在不重组前提下做协议转换
+       * - AUTH:     长度规则为 (hdrlen+2)*4，与通用规则 (hdrlen+1)*8 不同
+       * - ESP:      不具有标准扩展头格式
+       * - NONE:     无后续负载，不应作为扩展头继续解析
+       */
+      if (next_hdr == NEXTHDR_FRAGMENT || next_hdr == NEXTHDR_AUTH ||
+          next_hdr == NEXTHDR_ESP || next_hdr == NEXTHDR_NONE)
         return err;
 
       if (!pskb_may_pull(skb, current_hdr_start + sizeof(struct ipv6_opt_hdr)))
