@@ -518,64 +518,89 @@ module_param(force_sw_checksum, int, 0644);
 MODULE_PARM_DESC(force_sw_checksum, "Force software checksum calculation for all ICMP packets");
 
 static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_hdr_len, u32 ip_proto_offset, u32 l4_offset) {
-  const u8 ip_proto = skb->data[ip_proto_offset];
-  int      err;
+  u8   ip_proto;
+  bool use_partial;
+  int  err;
+
+  if (ip_proto_offset >= skb->len || l4_offset >= skb->len)
+    return -EINVAL;
+
+  ip_proto = skb->data[ip_proto_offset];
+
+  /*
+   * CHECKSUM_PARTIAL 要求 csum_start 指向 L4 头起始。
+   * 协议从 UDP 改为 ICMP/ICMPv6 后 L4 头位置不变（同 8 字节），
+   * 但仍需校验 csum_start 是否确实指向 l4_offset；不匹配则退回软件计算。
+   */
+  use_partial = !force_sw_checksum && skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_start_offset(skb) == (int) l4_offset;
 
   if (ip_type == 4 && ip_proto == IPPROTO_ICMP) {
-    if (force_sw_checksum || skb->ip_summed != CHECKSUM_PARTIAL) {
-      struct iphdr   *iph      = ip_hdr(skb);
-      struct icmphdr *icmph    = (typeof(icmph)) (skb->data + l4_offset);
-      size_t          icmp_len = ntohs(iph->tot_len) - ip_hdr_len;
+    struct iphdr   *iph = ip_hdr(skb);
+    struct icmphdr *icmph;
+    size_t          icmp_len;
 
-      icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
-
-      err = skb_ensure_writable(skb, l4_offset + icmp_len); // 整个icmp包
-      if (unlikely(err))
-        return err;
-
-      iph             = ip_hdr(skb);
-      icmph           = (typeof(icmph)) (skb->data + l4_offset);
-      icmph->checksum = 0;
-      icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
-      skb->ip_summed  = CHECKSUM_UNNECESSARY;
-    } else {
-      // skb->csum_start: 不变，因为udp->icmp并没有修改包长度
-      // skb->csum_offset: 应该指向icmp头部检验和位置
-      skb->csum_offset = offsetof(struct icmphdr, checksum);
-    }
-  } else if (ip_type == 6 && ip_proto == IPPROTO_ICMPV6) {
-    struct ipv6hdr  *ip6h        = ipv6_hdr(skb);
-    struct icmp6hdr *icmp6h      = (typeof(icmp6h)) (skb->data + l4_offset);
-    unsigned int     ext_hdr_len = ip_hdr_len - sizeof(struct ipv6hdr);
-    unsigned int     icmp_len    = ntohs(ip6h->payload_len) - ext_hdr_len;
-
+    if (ntohs(iph->tot_len) < ip_hdr_len)
+      return -EINVAL;
+    icmp_len = ntohs(iph->tot_len) - ip_hdr_len;
     icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
+    if (icmp_len < sizeof(*icmph))
+      return -EINVAL;
 
-    if (force_sw_checksum || skb->ip_summed != CHECKSUM_PARTIAL) {
+    if (!use_partial) {
       err = skb_ensure_writable(skb, l4_offset + icmp_len);
       if (unlikely(err))
         return err;
 
-      ip6h   = ipv6_hdr(skb);
-      icmp6h = (typeof(icmp6h)) (skb->data + l4_offset);
-      // 同样为了兼容性修复icmpv6检验和
-      icmp6h->icmp6_cksum = 0;
-      // 计算 ICMPv6 校验和(带伪头部)
-      __wsum csum         = csum_partial((char *) icmp6h, (int) icmp_len, 0);
-      icmp6h->icmp6_cksum = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, csum);
-      skb->ip_summed      = CHECKSUM_UNNECESSARY;
+      icmph           = (struct icmphdr *) (skb->data + l4_offset);
+      icmph->checksum = 0;
+      icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
+      skb->ip_summed  = CHECKSUM_UNNECESSARY;
     } else {
-      err = skb_ensure_writable(skb, l4_offset + sizeof(struct icmp6hdr));
+      err = skb_ensure_writable(skb, l4_offset + sizeof(*icmph));
       if (unlikely(err))
         return err;
 
-      ip6h   = ipv6_hdr(skb);
-      icmp6h = (typeof(icmp6h)) (skb->data + l4_offset);
-      // 计算 ICMPv6 校验和: 只算icmpv6伪头部，让硬件完成整个检验和计算
-      // 由于csum_ipv6_magic()结果是最终检验和，需要反转才得到icmpv6伪头部
-      icmp6h->icmp6_cksum = ~csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, 0);
-      // 而skb->csum_offset应该指向icmpv6头部检验和位置
-      skb->csum_offset = offsetof(struct icmp6hdr, icmp6_cksum);
+      icmph            = (struct icmphdr *) (skb->data + l4_offset);
+      icmph->checksum  = 0;
+      skb->csum_offset = offsetof(struct icmphdr, checksum);
+    }
+  } else if (ip_type == 6 && ip_proto == IPPROTO_ICMPV6) {
+    struct ipv6hdr  *ip6h = ipv6_hdr(skb);
+    struct icmp6hdr *icmp6h;
+    unsigned int     ext_hdr_len;
+    unsigned int     icmp_len;
+
+    if (ip_hdr_len < sizeof(struct ipv6hdr))
+      return -EINVAL;
+    ext_hdr_len = ip_hdr_len - sizeof(struct ipv6hdr);
+    if (ntohs(ip6h->payload_len) < ext_hdr_len)
+      return -EINVAL;
+    icmp_len = ntohs(ip6h->payload_len) - ext_hdr_len;
+    icmp_len = min_t(size_t, icmp_len, skb->len - l4_offset);
+    if (icmp_len < sizeof(*icmp6h))
+      return -EINVAL;
+
+    if (!use_partial) {
+      __wsum csum;
+
+      err = skb_ensure_writable(skb, l4_offset + icmp_len);
+      if (unlikely(err))
+        return err;
+
+      ip6h                = ipv6_hdr(skb);
+      icmp6h              = (struct icmp6hdr *) (skb->data + l4_offset);
+      icmp6h->icmp6_cksum = 0;
+      csum                = csum_partial((char *) icmp6h, (int) icmp_len, 0);
+      icmp6h->icmp6_cksum = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, icmp_len, IPPROTO_ICMPV6, csum);
+      skb->ip_summed      = CHECKSUM_UNNECESSARY;
+    } else {
+      err = skb_ensure_writable(skb, l4_offset + sizeof(*icmp6h));
+      if (unlikely(err))
+        return err;
+
+      icmp6h              = (struct icmp6hdr *) (skb->data + l4_offset);
+      icmp6h->icmp6_cksum = 0;
+      skb->csum_offset    = offsetof(struct icmp6hdr, icmp6_cksum);
     }
   }
 
