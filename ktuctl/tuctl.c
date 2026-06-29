@@ -99,7 +99,7 @@ static int get_family_id_internal(struct mnl_socket *nl, const char *family_name
 
   try2_e(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len));
   err = try2_e(mnl_socket_recvfrom(nl, buf, sizeof(buf)));
-  try2_e(mnl_cb_run(buf, err, 0, mnl_socket_get_portid(nl), ctrl_cb, &id));
+  try2(mnl_cb_run(buf, err, 0, mnl_socket_get_portid(nl), ctrl_cb, &id));
   *family_id = id;
   err        = 0;
 
@@ -164,7 +164,7 @@ static int send_simple_cmd(int cmd, int attr_type, const void *data, size_t len,
 
   try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
   err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)));
-  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL));
+  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), NULL, NULL));
   err = 0;
 
 err_cleanup:
@@ -197,6 +197,7 @@ static int single_data_cb(const struct nlmsghdr *nlh, void *data) {
     if (ctx->out) {
       memcpy(ctx->out, mnl_attr_get_payload(attr), ctx->expected_len);
     }
+    return MNL_CB_STOP;
   }
 
   return MNL_CB_ERROR;
@@ -267,7 +268,7 @@ static int send_and_recv_data(int cmd, int attr_type, const void *in_data, size_
     .out           = out_data,
   };
 
-  try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, &ctx));
+  try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), single_data_cb, &ctx));
   err = 0;
 
 err_cleanup:
@@ -372,7 +373,7 @@ static int tutu_foreach(int cmd, int attr_type, int size, tutu_iter_cb_t cb, voi
   try2_e(mnl_socket_sendto(g_nl, nlh, nlh->nlmsg_len));
 
   while ((err = try2_e(mnl_socket_recvfrom(g_nl, buf, sizeof(buf)))) > 0) {
-    err = try2_e(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx));
+    err = try2(mnl_cb_run(buf, err, nlh->nlmsg_seq, mnl_socket_get_portid(g_nl), dump_cb_internal, &ctx));
     if (err <= 0) /* EOF or error */
       break;
   }
@@ -2047,9 +2048,7 @@ int main(int argc, char *argv[]) {
   int err, subcmd_pos;
 
   uid_map_init(&uids);
-  // 忽略错误
-  err = uid_map_load(&uids, UID_CONFIG_PATH);
-
+  try(uid_map_load(&uids, UID_CONFIG_PATH));
   try(parse_argument(argc, argv, &subcmd_pos));
 
   if (subcmd_pos < 0) {
