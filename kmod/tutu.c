@@ -567,6 +567,7 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
     // iph后面未使用不用更新
     icmph = (struct icmphdr *) (skb->data + l4_offset);
 
+    icmph->checksum = 0;
     if (use_partial) {
       /*
        * CHECKSUM_PARTIAL 下的 ICMPv4：
@@ -574,10 +575,8 @@ static int skb_change_type(struct sk_buff *skb, u32 ip_type, u32 l2_len, u32 ip_
        * 因此这里把 checksum 字段清零即可，硬件从 csum_start 算到包尾后
        * 写回的就是最终校验和。
        */
-      icmph->checksum  = 0;
       skb->csum_offset = offsetof(struct icmphdr, checksum);
     } else {
-      icmph->checksum = 0;
       icmph->checksum = csum_fold(csum_partial((char *) icmph, (int) icmp_len, 0));
       skb->ip_summed  = CHECKSUM_UNNECESSARY;
     }
