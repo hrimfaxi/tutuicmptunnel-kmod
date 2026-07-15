@@ -58,9 +58,8 @@ sudo ktuctl client-del uid "$TUTU_UID" address "$ADDRESS"
 sudo ktuctl client-add uid "$TUTU_UID" address "$ADDRESS" port "$PORT"
 sudo ktuctl status
 
-IP="$(curl -sf ip.3322.net | tr -d '\r')"
 tuctl_client psk "$PSK" server "$ADDRESS" server-port "$SERVER_PORT" \
-  <<< "server-add uid $TUTU_UID address $IP port $PORT comment $COMMENT"
+  <<< "server-add uid $TUTU_UID address @client_ip@ port $PORT comment $COMMENT"
 
 if [[ "$SSH_PORT" == "22" ]]; then
   exec mosh --server="mosh-server new -p ${PORT}:${PORT}" \

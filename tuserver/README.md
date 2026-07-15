@@ -50,8 +50,5 @@ sudo systemctl enable --now tutuicmptunnel-tuctl-server
 ```sh
 #!/bin/bash
 
-MYIP=$(curl -sf ip.3322.net)
-tuctl_client psk $PSK server $SERVER server-port $SERVER_PORT script - <<< "add $TUTU_UID comment $COMMENT address $MYIP PORT=3322"
+tuctl_client psk $PSK server $SERVER server-port $SERVER_PORT script - <<< "add $TUTU_UID comment $COMMENT address @client_ip@ PORT=3322"
 ```
-
-注意以上脚本需要安装`curl`。

@@ -136,9 +136,6 @@ PSK=yourpsk
 PORT=53
 # export TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768  # adjust according to your tuserver settings
 
-IP=$(curl -sf ip.3322.net)
-echo local ip: $IP
-
 V() {
   echo "$@"
   "$@"
@@ -146,7 +143,7 @@ V() {
 
 ktuctl client-del $UID_ address $HOST
 ktuctl client-add uid $UID_ address $HOST port $PORT comment your-vps-name-dns
-echo "server-add uid $UID_ address $IP port $PORT comment yourname-dns" | V tuctl_client server $HOST server-port 14801 psk $PSK
+echo "server-add uid $UID_ address @client_ip@ port $PORT comment yourname-dns" | V tuctl_client server $HOST server-port 14801 psk $PSK
 ```
 
 `/etc/hotplug.d/iface/95-wan-down`
