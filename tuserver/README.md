@@ -52,3 +52,5 @@ sudo systemctl enable --now tutuicmptunnel-tuctl-server
 
 tuctl_client psk $PSK server $SERVER server-port $SERVER_PORT script - <<< "add $TUTU_UID comment $COMMENT address @client_ip@ PORT=3322"
 ```
+
+`@client_ip@` 是一个占位符，`tuctl_server` 在执行脚本时会自动将其替换为客户端的 UDP 源地址。
