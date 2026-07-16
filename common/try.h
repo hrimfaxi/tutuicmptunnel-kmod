@@ -4,10 +4,6 @@
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
 
-#ifdef BPF
-#define log_error TUTU_LOG
-#endif
-
 #define redecl(_type, _name, _off, _ctx, _ret, _method)                                                                        \
   _name = ({                                                                                                                   \
     _type *_ptr = (void *) (__u64) (_ctx)->data + (_off);                                                                      \
@@ -24,6 +20,7 @@
 #define decl_ok(type, name, off, skb)       decl_skb(type, name, off, skb, TC_ACT_OK)
 #define decl_shot(type, name, off, skb)     decl_skb(type, name, off, skb, TC_ACT_SHOT)
 
+// Variadic dispatch: supports ret value + up to 4 printf-style arguments.
 #define _get_macro(_0, _1, _2, _3, _4, _5, NAME, ...) NAME
 
 // Returns _ret while printing error.
@@ -53,7 +50,7 @@
     goto err_cleanup;                                                                                                          \
   })
 
-// Tests int return value from a function. Used for functions that returns non-zero error.
+// Tests int return value from a function. Used for functions that return negative error code.
 #define try(expr, ...)                                                                                                         \
   ({                                                                                                                           \
     long _ret = (expr);                                                                                                        \
@@ -71,16 +68,13 @@
     _ret;                                                                                                                      \
   })
 
-// `errno` is not available in BPF
-#ifndef _BPF
-
 // Same as `try`, but returns -errno
 #define try_e(expr, ...)                                                                                                       \
   ({                                                                                                                           \
     long _ret = (expr);                                                                                                        \
     if (unlikely(_ret < 0)) {                                                                                                  \
       _ret = -errno;                                                                                                           \
-      ret(-errno, ##__VA_ARGS__);                                                                                              \
+      ret(_ret, ##__VA_ARGS__);                                                                                                \
     }                                                                                                                          \
     _ret;                                                                                                                      \
   })
@@ -117,8 +111,6 @@
     }                                                                                                                          \
     _ptr;                                                                                                                      \
   })
-
-#endif // _BPF
 
 // Tests int return value from a function, but return a different value when failed.
 #define try_ret(expr, ret)                                                                                                     \

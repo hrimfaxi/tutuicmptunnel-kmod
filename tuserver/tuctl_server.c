@@ -338,7 +338,7 @@ static int replace_client_ip(const uint8_t *cmd, size_t cmd_len, const struct so
 
   /* 全路径拒绝 SIZE_MAX，防止后续 cmd_len + 1 和 SIZE_MAX - 1 - cmd_len 下溢 */
   if (cmd_len == SIZE_MAX) {
-    err = -ENOMEM;
+    err = -EINVAL;
     goto err_cleanup;
   }
 
@@ -386,10 +386,26 @@ static int replace_client_ip(const uint8_t *cmd, size_t cmd_len, const struct so
     err_cleanup(-EAFNOSUPPORT);
   }
 
-  gai_err = getnameinfo((const struct sockaddr *) cli, cli_len, ip_str, sizeof(ip_str), NULL, 0, NI_NUMERICHOST);
+  {
+    const struct sockaddr *sa     = (const struct sockaddr *) cli;
+    socklen_t              sa_len = cli_len;
+
+    /* IPv4-mapped IPv6 (::ffff:a.b.c.d) → 转换为纯 IPv4，避免下游收到非预期格式 */
+    struct sockaddr_in v4;
+    if (cli->ss_family == AF_INET6 && IN6_IS_ADDR_V4MAPPED(&((const struct sockaddr_in6 *) cli)->sin6_addr)) {
+      memset(&v4, 0, sizeof(v4));
+      v4.sin_family = AF_INET;
+      v4.sin_port   = ((const struct sockaddr_in6 *) cli)->sin6_port;
+      memcpy(&v4.sin_addr, &((const struct sockaddr_in6 *) cli)->sin6_addr.s6_addr[12], 4);
+      sa     = (const struct sockaddr *) &v4;
+      sa_len = sizeof(v4);
+    }
+
+    gai_err = getnameinfo(sa, sa_len, ip_str, sizeof(ip_str), NULL, 0, NI_NUMERICHOST);
+  }
   if (gai_err != 0) {
     log_error("getnameinfo failed: %s", gai_strerror(gai_err));
-    err_cleanup(-EINVAL);
+    err_cleanup(gai_err == EAI_MEMORY ? -ENOMEM : -EINVAL);
   }
   ip_len = strlen(ip_str);
 
