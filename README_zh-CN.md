@@ -158,6 +158,19 @@ sudo pacman -S git libsodium dkms base-devel linux-headers \
 
 请参阅 📖 [OpenWrt 指南](docs/openwrt.md)。
 
+为方便在 OpenWrt 上部署，提供以下配套项目：
+
+| 项目 | 说明 |
+| :--- | :--- |
+| [tumgrd](https://github.com/hrimfaxi/tumgrd) | `tutuicmptunnel-kmod` 的 OpenWrt 守护进程，负责自动管理内核模块加载与配置 |
+| [openwrt-tumgrd](https://github.com/hrimfaxi/openwrt-tumgrd) | OpenWrt 软件包 Makefile，用于编译打包 `tumgrd` |
+| [luci-app-tumgrd](https://github.com/hrimfaxi/luci-app-tumgrd) | LuCI Web 界面插件，提供图形化配置与状态监控 |
+
+通过这三个项目，可以实现：
+- 📦 一键安装与自动更新
+- 🖥️ LuCI Web 界面图形化配置
+- 🔄 开机自启与状态监控
+
 </details>
 
 ---
