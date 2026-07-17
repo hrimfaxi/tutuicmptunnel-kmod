@@ -27,7 +27,7 @@
 - 🌐 **双栈支持** — 同时支持 IPv4 / IPv6 下的 `ICMP` / `ICMPv6`
 - 🔄 **配置热同步** — 通过 `tuctl_server` / `tuctl_client` 安全、迅速地同步服务器与客户端配置
 - 🔗 **互通兼容** — 与 BPF 版 `tutuicmptunnel` 可互换通信（一端做服务器，另一端做客户端）
-- 🧩 **职责单一** — 只负责封装与转发，加密与校验交给上层工具（WireGuard / hysteria / xray 等）
+- 🧩 **职责单一** — 负责封装、转发与简单 XOR 混淆，加密与完整性校验交给上层工具（WireGuard / hysteria / xray 等）
 
 ---
 
@@ -95,7 +95,7 @@ sequenceDiagram
 
 ### 🎯 设计原则
 
-- 可与 `WireGuard`、`xray-core` + `kcptun`、`hysteria` 等工具搭配使用。由于这些软件本身已具备加密和完整性校验能力，`tutuicmptunnel-kmod` **不负责加密、混淆和校验**，仅负责封装与转发。
+- 可与 `WireGuard`、`xray-core` + `kcptun`、`hysteria` 等工具搭配使用。由于这些软件本身已具备加密和完整性校验能力，`tutuicmptunnel-kmod` 提供简单 XOR 混淆，**不负责加密与校验**，主要负责封装与转发。
 - **不修改数据包负载内容**，也不会在报文中添加额外的 IP 头部。
 - 服务器端转发规则完全由用户手动通过三元组配置（可通过 [ktuctl](ktuctl/README.md) 经 SSH 调用，或使用 `tuctl_client` 动态同步）。
 
