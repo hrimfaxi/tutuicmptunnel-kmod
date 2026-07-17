@@ -70,6 +70,7 @@ ktuctl server-add [OPTIONS] {uid UID | user USERNAME} address ADDR port PORT [ic
 `icmp-id` | 0 | 可选：客户端使用的`ICMP ID`
 `sport` | 0 | 可选：客户端的`UDP`源端口
 `comment` | 空字符串 | 可选: 一个描述性注释用于标识客户端身份
+`xor` | 无 | 可选：XOR 混淆密钥（十六进制格式，如 `a1b2c3d4`）
 
 可选参数:
 
@@ -121,6 +122,7 @@ ktuctl client-add [OPTIONS] address ADDR port PORT {uid UID | user USERNAME} [co
 `uid` | 无  | 用户`UID`
 `username` | 无  | 用户名
 `comment` | 空字符串 | 可选：一个描述性注释用于标识服务器身份
+`xor` | 无 | 可选：XOR 混淆密钥（十六进制格式，如 `a1b2c3d4`）
 
 可选参数:
 
@@ -207,3 +209,35 @@ ktuctl script FILE
 ### `help`
 
 > 打印帮助信息
+
+## XOR 混淆
+
+### 概述
+
+`tutuicmptunnel-kmod` 支持简单的 XOR 混淆功能，用于对 ICMP 载荷进行轻量级混淆处理。这可以增加 DPI（深度包检测）识别和过滤的难度，但**不提供真正的加密安全性**。
+
+### 原理
+
+XOR 混淆的工作原理：
+
+1. **密钥生成**：使用预共享的十六进制密钥（如 `a1b2c3d4e5f6`）
+2. **载荷处理**：对 ICMP 包的有效载荷逐字节与密钥进行异或运算
+3. **动态偏移**：使用 `ICMP sequence` 和载荷长度计算密钥起始位置，避免固定模式
+4. **双向处理**：发送时混淆，接收时解混淆（XOR 运算的可逆性）
+
+### 使用示例
+
+```bash
+# 服务器端添加带 XOR 混淆的客户端
+sudo ktuctl server-add uid 42 address 10.0.0.2 port 51820 xor a1b2c3d4
+
+# 客户端添加带 XOR 混淆的服务器
+sudo ktuctl client-add address 198.51.100.7 port 51820 uid 42 xor a1b2c3d4
+```
+
+### 注意事项
+
+- **双方必须使用相同的 XOR 密钥**，否则通信将失败
+- **不是加密**：XOR 混淆仅提供有限的混淆效果，不应依赖它进行安全保护
+- **建议配合加密工具使用**：如 WireGuard、hysteria、xray 等已具备强加密的工具
+- **密钥格式**：必须是十六进制字符串（偶数长度），最大长度取决于内核模块实现
