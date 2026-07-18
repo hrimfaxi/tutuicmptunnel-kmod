@@ -1,46 +1,57 @@
-# hysteria
+# 使用 tutuicmptunnel-kmod 保护 hysteria 流量
 
-## 示例展示
+`hysteria` 基于 UDP/QUIC 传输，同样容易受到 ISP 针对 UDP 的 QoS 限速与干扰。通过 `tutuicmptunnel-kmod`，可以将 hysteria 的 UDP 流量封装为 ICMP 报文传输：
 
-> 本地 ‑(SOCKS5)→ Hysteria-UDP ‑(ICMP)→ 服务器 \
-> 全部参数均已抽象为占位符，请按实际情况替换，尤其是域名 / 密钥。 \
-> ⚠️ 文档刻意省略了真实 SNI、密码、IP 等敏感信息，请勿在公开场合留下明文。
-
-我们假设你现在有一个可以用的`hysteria`配置，`UDP`端口为`3322`。
-现在你需要使用`tutuicmptunnel-kmod`将流量转变为`ICMP`协议。
-
-## 依赖
-
-`Ubuntu`:
-
-```bash
-sudo apt-get install curl
+```mermaid
+flowchart LR
+    subgraph 客户端
+        A[应用] --> B[hysteria client<br/>SOCKS5]
+        B --> C[QUIC/UDP :3322]
+        C --> D[tutuicmptunnel-kmod<br/>封装为 ICMP]
+    end
+    D -- "ICMP（公网传输）" --> E
+    subgraph 服务端
+        E[tutuicmptunnel-kmod<br/>解封装] --> F[QUIC/UDP :3322]
+        F --> G[hysteria server]
+    end
 ```
 
-`Archlinux`:
+> [!WARNING]
+> 本文所有参数均为占位符（域名、密钥、IP 等），请按实际情况替换。请勿在公开场合泄露真实的 SNI、密码、IP 等敏感信息。
+
+## 前提条件
+
+* 已有一份可用的 `hysteria` 配置，UDP 端口为 `3322`
+* 客户端已安装 `curl`：
 
 ```bash
+# Ubuntu
+sudo apt-get install curl
+
+# Arch Linux
 sudo pacman -S curl
 ```
 
-## `tutuicmptunnel-kmod`设置
+## 部署
 
-首先要在服务器上为你的客户端设备选好一个`UID`，比如说主机名为`a320`，`UID`为100。
+### 1. 分配 UID
 
-`/etc/tutuicmptunnel/uids`:
+为每台客户端设备在服务器上选定一个唯一的 `UID`。本例中主机名为 `a320`，`UID` 为 `100`。
 
+在**服务器**的 `/etc/tutuicmptunnel/uids` 中添加：
+
+```text
+100 a320
 ```
-100 a320 # a320
-```
 
-客户端上也同样添加以上记录到`/etc/tutuicmptunnel/uids`。
+**客户端**的 `/etc/tutuicmptunnel/uids` 中也添加同样的记录。
 
-## 修改systemd 单元文件
+### 2. 修改 systemd 单元（服务端）
 
-注意`tutuicmptunnel-kmod`无法处理`GSO`包，需要关闭`hysteria`的相关功能。
-通过设置环境变量`QUIC_GO_DISABLE_GSO=1`，如下所示：
+> [!IMPORTANT]
+> `tutuicmptunnel-kmod` 无法处理 GSO 包，必须通过环境变量 `QUIC_GO_DISABLE_GSO=1` 关闭 hysteria 的 GSO 功能，客户端和服务端都需要设置。
 
-`/etc/systemd/system/hysteria-server@.service`:
+`/etc/systemd/system/hysteria-server@.service`：
 
 ```ini
 [Unit]
@@ -61,16 +72,16 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-### 同步客户端`ip`脚本
+### 3. 配置客户端 IP 同步脚本
 
-可以在客户端上使用`tuctl_client`工具来远程修改服务器的`ktuctl`配置，这样客户端公网`IP`切换了也可以通知服务器。
+客户端可以通过 `tuctl_client` 远程更新服务器上的 `ktuctl` 规则。这样即使客户端公网 IP 发生变化，也能及时通知服务器。
 
-`/usr/local/bin/tutuicmptunnel_sync.sh`:
+创建 `/usr/local/bin/tutuicmptunnel_sync.sh`：
 
 ```bash
 #!/bin/bash
 
-# 本脚本在客户端上运行，通过tuctl_client工具通告服务器客户端配置的更新。
+# 本脚本在客户端上运行，通过 tuctl_client 向服务器通告客户端配置的更新。
 
 V() {
   echo "$@"
@@ -105,27 +116,28 @@ echo "server-add uid $TUTU_UID address @client_ip@ port $PORT comment $COMMENT" 
 # vim: set sw=2 ts=2 expandtab:
 ```
 
-### 启动`tutuicmptunnel-kmod`
+### 4. 启动
 
 ```bash
-
-# 先同步tutuicmptunnel的客户端IP
+# 先同步客户端 IP 到服务器
 /usr/local/bin/tutuicmptunnel_sync.sh
 
-# 再跑 hysteria 客户端
+# 再启动 hysteria 客户端（同样需要关闭 GSO）
 QUIC_GO_DISABLE_GSO=1 hysteria client -c client.yaml
 ```
 
-如果客户端公网`IP`频繁切换，此时需要更新客户端`IP`到服务器。可以添加以上脚本到`crontab`定期运行（每5分钟）：
+### 5.（可选）定时同步客户端 IP
 
-```
+如果客户端公网 IP 变动频繁，需要定期向服务器更新 IP。可以用 `crontab` 每 5 分钟运行一次同步脚本：
+
+```cron
 PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 */5 * * * * /usr/local/bin/tutuicmptunnel_sync.sh
 ```
 
-或者使用一个`systemd-timer`达到同样目的：
+也可以使用 `systemd` timer 达到同样的效果：
 
-`/etc/systemd/system/tutuicmptunnel_sync.service`:
+`/etc/systemd/system/tutuicmptunnel_sync.service`：
 
 ```ini
 [Unit]
@@ -137,9 +149,9 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
 ExecStart=/usr/local/bin/tutuicmptunnel_sync.sh
 ```
 
-`/etc/systemd/system/tutuicmptunnel_sync.timer`:
+`/etc/systemd/system/tutuicmptunnel_sync.timer`：
 
-```
+```ini
 [Unit]
 Description=Run tutuicmptunnel_sync every 5 minutes
 
@@ -152,21 +164,24 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-## 测试
+> [!NOTE]
+> 别忘了执行 `systemctl daemon-reload` 并启用 timer：`systemctl enable --now tutuicmptunnel_sync.timer`。
 
-测速：
+## 验证与测试
+
+**测速：**
 
 ```bash
-hysteria speedtest -c client.yaml 
+hysteria speedtest -c client.yaml
 ```
 
-查看 ICMP 隧道计数：
+**查看 ICMP 隧道计数：**
 
 ```bash
 sudo ktuctl -d
 ```
 
-查看是否有icmp包：
+**抓包确认 ICMP 流量：**
 
 ```bash
 sudo tcpdump -i any icmp -n -v
