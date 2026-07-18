@@ -1,30 +1,44 @@
-# OpenWrt Client Guide
+# Running tutuicmptunnel-kmod Client on OpenWrt
 
 [English](./openwrt.md) | [简体中文](./openwrt_zh-CN.md)
 
 ---
 
-## Overview
+`tutuicmptunnel-kmod` can run on standard OpenWrt firmware. There are two approaches for deploying the client on OpenWrt devices:
 
-`tutuicmptunnel-kmod` can run on standard `OpenWrt` firmware.
-This guide will detail how to cross-compile the `tutuicmptunnel-kmod` project to successfully run in client mode on an `OpenWrt` device.
+| Approach | Description | Target Audience |
+| :--- | :--- | :--- |
+| **Option 1: SDK Packaging (Recommended)** | Use the [openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/openwrt-tutuicmptunnel-kmod) packaging project to build `.ipk` / `.apk` packages based on OpenWrt SDK, install/upgrade/uninstall with system package manager | Most users |
+| **Option 2: Manual Cross-compilation (This document)** | Manually configure toolchain, compile libsodium, libmnl, main program and kernel module one by one, then `scp` to device | Need to modify source code, debug, or your target platform has no packaging configuration yet |
 
-## Environment Preparation
+> [!TIP]
+> If you just want to use it on your router, please go with Option 1 — the packaging project already handles dependencies, installation paths, and auto-start on boot. This document describes Option 2, suitable for developers who need deep control over the compilation process.
 
-You need to download the `openwrt-sdk` package corresponding to your router brand. For example, if you have a Xiaomi Router AX3000T, go to the
-[Xiaomi AX3000T Firmware Download Page](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/)
-and download the following files from the bottom of the page:
-- [openwrt-sdk](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst)
+## Option 2: Manual Cross-compilation
 
-Then extract them to the `$HOME/temp` directory.
+The overall process is as follows:
 
-## Automatic Compilation
+```mermaid
+flowchart LR
+    A[Download OpenWrt SDK<br/>Match router model] --> B[Cross-compile<br/>libsodium / libmnl<br/>tutuicmptunnel-kmod / kmod]
+    B --> C[scp to router<br/>tuctl* / ktuctl / .so / .ko]
+    C[D[Load kernel module<br/>and set auto-start]
+```
 
-See [openwrt-tutuicmptunnel-kmod](https://github.com/hrimfaxi/openwrt-tutuicmptunnel-kmod)
+### Environment Preparation
 
-## Manual Cross-Compilation
+Download the OpenWrt SDK corresponding to your router model. Taking Xiaomi AX3000T as an example, find on the [firmware download page](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/):
 
-The following is the cross-compilation method for `OpenWrt` on `aarch64` architecture.
+* [openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst](https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst)
+
+After downloading, extract to `$HOME/temp` directory.
+
+> [!IMPORTANT]
+> The SDK must strictly match your device's architecture and firmware version, otherwise the compiled kernel module cannot be loaded.
+
+The following demonstrates manual cross-compilation using the `aarch64` architecture OpenWrt as an example.
+
+### 1. Set Up Build Environment
 
 ```bash
 export STAGING_DIR=${HOME}/temp/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64/staging_dir
@@ -45,17 +59,23 @@ echo "TARGETROOT: ${TARGETROOT}"
 echo "KERNEL_DIR:  ${KERNEL_DIR}"
 echo "CC:  ${CC}"
 echo ================================================================================
+```
 
+Confirm that the output paths for `TOOLCHAIN`, `TARGETROOT`, and `KERNEL_DIR` are valid before continuing.
+
+### 2. Compile Dependencies
+
+```bash
 # Compile libsodium
 git clone https://github.com/jedisct1/libsodium.git
 cd libsodium
-git checkout $LIBSODIUM_TAG # Choose a stable version
+git checkout $LIBSODIUM_TAG # Choose a latest stable release
 ./autogen.sh
 ./configure --host=$ARCH-openwrt-linux \
   CC=${TOOLCHAIN}/bin/$ARCH-openwrt-linux-gcc
 make -j $(nproc)
 
-# Compile `libmnl`
+# Compile libmnl
 cd ..
 git clone https://github.com/justmirror/libmnl
 cd libmnl
@@ -70,8 +90,11 @@ cd libmnl
 
 make V=1 clean all
 make V=1 DESTDIR=${TARGETROOT} install
+```
 
-# Compile `tutuicmptunnel-kmod`
+### 3. Compile tutuicmptunnel-kmod and Kernel Module
+
+```bash
 cd ..
 git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod.git
 cd tutuicmptunnel-kmod
@@ -100,40 +123,45 @@ make \
   -C kmod
 ```
 
+## Deploy to Device
 
-Finally, copy the libraries to the `OpenWrt` device:
+Copy the compiled artifacts to the OpenWrt device:
 
-```
+```bash
 scp stripped/usr/local/bin/tuctl* router:/usr/bin/
 scp stripped/usr/local/sbin/ktuctl router:/usr/sbin/
 scp ../libsodium/src/libsodium/.libs/libsodium.so router:/usr/lib/
 scp kmod/tutuicmptunnel.ko router:/lib/modules/6.6.119/
 ```
 
-`ssh` into the `OpenWrt` device and set the module to load on boot:
+> [!NOTE]
+> The kernel version in `lib/modules/6.6.119/` must match the actual running kernel on the device. Use `uname -r` on the device to confirm.
 
-```
+Log in to the device via `ssh`, load the module and set up auto-start:
+
+```bash
 echo tutuicmptunnel > /etc/modules.d/99-tutuicmptunnel
 modprobe tutuicmptunnel
 ```
 
-Now you can use programs like `tuctl`, `tuctl_client`, `ktuctl`, etc., on the `OpenWrt` device.
+At this point, you can use `tuctl`, `tuctl_client`, `ktuctl` and other programs on the OpenWrt device.
 
-## tuctl_client Memory Usage Issue
+## Reduce tuctl_client Memory Usage
 
-On memory-constrained devices, you can reduce the memory usage of `tuctl_client` by lowering the memory cost of password hashing.
-Set the environment variable `TUTUICMPTUNNEL_PWHASH_MEMLIMIT` (unit: bytes) to achieve this.
+On memory-constrained devices like routers, you can reduce password hashing memory usage via the environment variable `TUTUICMPTUNNEL_PWHASH_MEMLIMIT` (unit: bytes).
 
-Example
+**Server** (systemd unit file):
 
-    Server (Unit File):
-    Environment=TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768
+```ini
+Environment=TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768
+```
 
-    Client:
-    TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768 tuctl_client ...
+**Client**:
 
-Key Points
+```bash
+TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768 tuctl_client ...
+```
 
-> The server and client must use the same value, otherwise communication cannot be established. \
-> The smaller the value of this parameter, the lower the memory usage, but security will also decrease accordingly; please weigh this based on device capabilities and risk assessment. \
-> The `TUTUICMPTUNNEL_PWHASH_MEMLIMIT` on the server and client must be consistent; inconsistency will result in handshake failure and inability to communicate.
+> [!WARNING]
+> * Server and client must use **the same value**, otherwise handshake fails and communication cannot be established.
+> * Smaller values mean lower memory usage but also lower security. Please balance according to device capability and risk assessment.

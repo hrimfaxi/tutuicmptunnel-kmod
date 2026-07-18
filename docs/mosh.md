@@ -1,43 +1,70 @@
-# tutuicmptunnel-kmod + MOSH (Pin UDP Port 3325)
+# Protecting mosh Traffic with tutuicmptunnel-kmod
 
 [English](./mosh.md) | [简体中文](./mosh_zh-CN.md)
 
 ---
 
-This document shows how to **pin MOSH’s UDP session port** to a single port (e.g. `3325/udp`), and use **tutuicmptunnel-kmod** to encapsulate that UDP traffic into **ICMP echo request/reply**, so you can still use mosh when UDP is blocked or unstable.
+`mosh` uses UDP for interactive data, which can cause lag or even complete unavailability in networks where UDP is blocked or QoS throttled. This document demonstrates how to fix mosh's UDP session port to a single port (using `3325/udp` as an example) and use `tutuicmptunnel-kmod` to encapsulate that port's UDP traffic into ICMP echo request/reply for transmission, keeping mosh usable in adverse network conditions.
+
+```mermaid
+flowchart LR
+    subgraph Client
+        A[mosh client] --> B[QUIC-free<br/>UDP :3325]
+        B --> C[tutuicmptunnel-kmod<br/>Encapsulate to ICMP]
+        S[SSH :22<br/>Auth/Start mosh-server] -.->|Direct| SRV
+    end
+    C -- "ICMP (Public Network)" --> D
+    subgraph Server
+        D[tutuicmptunnel-kmod<br/>Decapsulate] --> E[UDP :3325]
+        E --> F[mosh-server]
+    end
+```
 
 ## Background
 
-1. **MOSH is not pure SSH**
-   mosh starts with **SSH** (for authentication and starting the server-side process), then the actual interactive traffic goes over **UDP**.
+1. **mosh is not pure SSH**
 
-2. **The server must run a `mosh-server` process**
-   The mosh client runs `mosh-server new ...` on the remote host via SSH, starting a UDP session endpoint.
+   When mosh starts, it first uses SSH for authentication and to start the server process. After that, the actual interactive data uses UDP. Therefore, the SSH connection itself does not need to go through the tunnel, only the UDP session port needs to be encapsulated.
 
-3. **Pinning the port makes tunneling easy**
-   By default, mosh picks a port from a range (commonly 60000–61000).
-   For ICMP tunneling, using a single port (or a small range) is more stable and simplifies rules.
+2. **Server must have `mosh-server` process**
 
----
+   The mosh client executes `mosh-server new ...` via SSH on the remote end to start a UDP session endpoint.
 
-## Server (test.server)
+3. **Fixed port simplifies tunnel encapsulation**
 
-1) Install mosh:
+   mosh defaults to selecting a port from a range (commonly 60000–61000). For ICMP tunnels, fixing to a single port (or small range) makes rules simpler and operation more stable. This tutorial uses `mosh-server new -p 3325:3325` to fix the port to `3325`.
+
+## Prerequisites
+
+| Parameter | Example Value | Description |
+| :--- | :--- | :--- |
+| Server address | `test.server` | mosh server domain or IP |
+| mosh UDP port | `3325` | Fixed session port |
+| tuctl_server port | `14801` | Remote management port |
+| tuctl_server PSK | `yourlongpsk` | Remote management passphrase |
+| Client UID | `199` | Unique UID assigned to this client on the server |
+
+> [!NOTE]
+> The above are example values, please replace according to your actual situation. The server needs to have `tutuicmptunnel-tuctl-server` service installed and running, and the UID must be registered in both server and client's `/etc/tutuicmptunnel/uids` (see the "Assign UID" section in [wireguard tutorial](/docs/wireguard.md)).
+
+## Server Configuration
+
+1. Install mosh:
+
 ```bash
 # Debian/Ubuntu
 sudo apt update && sudo apt install -y mosh
 ```
 
-2) Allow UDP 3325 (if you have a firewall):
+2. Allow UDP 3325 (if firewall is enabled):
+
 ```bash
 sudo ufw allow 3325/udp
 ```
 
----
+## Client Configuration
 
-## Client
-
-Save as `mosh-over-icmp.sh`:
+Save the following script as `mosh-over-icmp.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -50,7 +77,7 @@ SERVER_PORT="14801"
 COMMENT="a320-mosh"
 PSK="yourlongpsk"
 
-# Adjust to match your server settings
+# Configure according to your server settings
 #export TUTUICMPTUNNEL_PWHASH_MEMLIMIT="1024768"
 
 MOSH_USER="${MOSH_USER:-$USER}"
@@ -74,27 +101,34 @@ else
 fi
 ```
 
-Run:
+The script does three things: registers client rules locally with `ktuctl`, remotely notifies the server to add rules via `tuctl_client`, then starts mosh with a fixed port.
+
+## Start
+
 ```bash
 chmod +x mosh-over-icmp.sh
 ./mosh-over-icmp.sh
 ```
 
-Specify username / SSH port:
+Specify login username or custom SSH port:
+
 ```bash
 MOSH_USER=root SSH_PORT=2222 ./mosh-over-icmp.sh
 ```
 
----
+## Verification
 
-## Verification (Optional)
+**Check UDP listening on server:**
 
-Check the listener on the server:
 ```bash
 sudo ss -lunp | grep ':3325'
 ```
 
-Capture ICMP on the client:
+**Packet capture on client to confirm traffic is encapsulated as ICMP:**
+
 ```bash
 sudo tcpdump -ni any icmp
 ```
+
+> [!TIP]
+> If mosh connection disconnects immediately after establishing, first check if the UID in the `uids` files on both ends is consistent, and whether the server firewall has allowed the corresponding port.

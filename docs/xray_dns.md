@@ -1,75 +1,96 @@
-## Overview
+# Protecting DNS Queries with tutuicmptunnel-kmod (xray + OpenWrt)
 
 [English](./xray_dns.md) | [简体中文](./xray_dns_zh-CN.md)
 
 ---
 
-Forward DNS queries on a VPS to `8.8.8.8` via **xray-core** `dokodemo-door`, and on the OpenWrt side use **tutuicmptunnel-kmod** to encapsulate UDP DNS queries into ICMP, reducing the chance of DPI interference and DNS poisoning. Use **iptables** to redirect inbound `53/UDP` to local `5353/UDP` to avoid conflicts with `systemd-resolved` occupying port 53.
+Forward DNS queries on VPS to 8.8.8.8 via xray-core's dokodemo-door, and use tutuicmptunnel-kmod on OpenWrt side to encapsulate UDP queries into ICMP, reducing DPI interference and pollution probability. On VPS, redirect external 53/UDP to local 5353/UDP via iptables to avoid systemd-resolved port occupation.
 
-## Topology & Approach
-
-- Choose a Hong Kong VPS (EDNS-based routing is typically closer to mainland China, resulting in lower latency).
-- On the VPS, run xray-core with a `dokodemo-door` inbound on `5353/UDP`, forwarding to `8.8.8.8:53`.
-- On the VPS, use iptables to redirect `53/UDP` on `eth0` to `5353/UDP`.
-- On OpenWrt, use `tutuicmptunnel-kmod` to encapsulate outbound DNS UDP traffic into ICMP and forward it, bypassing GFW DPI.
-- Use a hotplug script to automatically create/remove the tunnel when the OpenWrt WAN interface goes up/down.
-- Finally, configure the upstream DNS on OpenWrt to your VPS IP.
-
-## VPS-Side Configuration
-
-### xray-core Configuration
-
-Add an inbound (`dokodemo-door`) on the server listening on `5353/UDP` and forwarding to `8.8.8.8:53`:
-
-```json
-{
-  "port": 5353,
-  "protocol": "dokodemo-door",
-  "settings": {
-    "address": "8.8.8.8",
-    "port": 53,
-    "network": "udp"
-  },
-  "tag": "dns-in"
-}
+```mermaid
+flowchart LR
+    subgraph OpenWrt["OpenWrt Router"]
+        A[LAN Devices<br/>DNS Query] --> B[Upstream DNS = VPS IP<br/>UDP :53]
+        B --> C[tutuicmptunnel-kmod<br/>Encapsulate to ICMP]
+    end
+    C -- "ICMP (Public Network, Bypass DPI)" --> D
+    subgraph VPS["VPS (Hong Kong)"]
+        D[tutuicmptunnel-kmod<br/>Decapsulate] --> E[iptables REDIRECT<br/>:53 → :5353]
+        E --> F[xray dokodemo-door<br/>UDP :5353]
+        F --> G[8.8.8.8:53]
+    end
 ```
 
-> Notes
->
-> - Port `5353` is used to avoid conflict with `systemd-resolved`, which occupies port `53`.
-> - This inbound handles **UDP only**.
+## Overall Approach
 
-### Restart the service
+* Choose a Hong Kong VPS (EDNS routing is closer to domestic, lower latency)
+* Use xray-core on VPS to open 5353/UDP dokodemo-door, forwarding to 8.8.8.8:53
+* Use iptables on VPS to redirect eth0's 53/UDP to 5353/UDP
+* Use tutuicmptunnel-kmod on OpenWrt to encapsulate outgoing DNS UDP into ICMP for forwarding, bypassing GFW's DPI
+* Use hotplug scripts on OpenWrt WAN interface up/down to automatically establish/tear down tunnel
+* Finally configure upstream DNS in OpenWrt as VPS IP
 
-```sh
+## VPS Configuration
+
+### 1. Configure xray-core
+
+Add a dokodemo-door Inbound in server configuration, listening on 5353/UDP and forwarding to 8.8.8.8:53:
+
+```json
+        {
+            "port": 5353,
+            "protocol": "dokodemo-door",
+            "settings": {
+                "address": "8.8.8.8",
+                "port": 53,
+                "network": "udp"
+            },
+            "tag": "dns-in"
+        },
+```
+
+> [!NOTE]
+> * Using 5353 avoids conflict with systemd-resolved's port 53.
+> * This Inbound only handles UDP.
+
+Restart service:
+
+```bash
 sudo systemctl restart xray
 ```
 
-## Port Redirection (iptables)
+### 2. Configure Port Redirection (iptables)
 
-Redirect UDP/53 arriving on `eth0` to local UDP/5353. Insert the rule at the top to avoid being preempted by other rules:
+> [!WARNING]
+> This configuration will make the VPS's public 53/UDP appear as an **open DNS recursive resolver** when the tunnel is not established — anyone `dig @yourVPS` will get a response. Many VPS providers explicitly prohibit open port 53 (to prevent DNS amplification attack abuse), which may trigger abuse warnings or even shutdown. If your provider has this restriction, or you prefer a more stable approach, please use the "[Alternative: Use Non-standard Port Directly](#alternative-use-non-standard-port-directly)" method below.
 
-```sh
+Redirect UDP 53 from eth0 to local UDP 5353 (insert at the top of the rule chain to avoid being matched by other rules first):
+
+```bash
 sudo iptables -t nat -I PREROUTING 1 -i eth0 -p udp --dport 53 -j REDIRECT --to-ports 5353
 ```
 
-Persist rules (Debian/Ubuntu):
+Persist (Debian/Ubuntu):
 
-```sh
+```bash
 sudo apt-get install -y iptables-persistent
 sudo netfilter-persistent save
 ```
 
-Verify:
+Verify rules:
 
-```sh
+```bash
 sudo iptables -t nat -L -v -n
 ```
 
-Test DNS resolution (from an external machine):
+### 3. Verify Resolution (and Current Pollution Status)
 
-```sh
+Test resolution from external machine:
+
+```bash
 dig reddit.com @your_vps_ip
+```
+
+```text
 ;; ->>HEADER<<- opcode: QUERY, rcode: NOERROR, id: 44623
 ;; flags: qr rd ra ; QUERY: 1, ANSWER: 4, AUTHORITY: 0, ADDITIONAL: 0
 ;; QUESTION SECTION:
@@ -81,21 +102,17 @@ reddit.com.    192    IN    A    151.101.1.140
 reddit.com.    192    IN    A    151.101.65.140
 reddit.com.    192    IN    A    151.101.129.140
 
-;; AUTHORITY SECTION:
-
-;; ADDITIONAL SECTION:
-
 ;; Query time: 80 msec
-;; SERVER: x.x.x.x
-;; WHEN: Fri Oct 10 10:21:19 2025
 ;; MSG SIZE  rcvd: 92
 ```
 
-But don’t celebrate too early—at this point GFW DPI can still poison your results:
+But don't celebrate too early — the query is still using plaintext UDP at this point, and GFW's DPI can still pollute the results:
 
-```sh
+```bash
 dig www.google.com @your_vps_ip
+```
 
+```text
 ;; ->>HEADER<<- opcode: QUERY, rcode: NOERROR, id: 62391
 ;; flags: qr rd ra ; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0
 ;; QUESTION SECTION:
@@ -104,37 +121,52 @@ dig www.google.com @your_vps_ip
 ;; ANSWER SECTION:
 www.google.com.    141    IN    A    31.13.88.26
 
-;; AUTHORITY SECTION:
-
-;; ADDITIONAL SECTION:
-
 ;; Query time: 51 msec
-;; SERVER: x.x.x.x
-;; WHEN: Fri Oct 10 10:14:51 2025
 ;; MSG SIZE  rcvd: 48
 ```
 
-# OpenWrt-Side Configuration
+The returned `31.13.88.26` is a polluted result. Next, use tutuicmptunnel-kmod to solve this step.
 
-## tutuicmptunnel-kmod and Hotplug Scripts
+### Alternative: Use Non-standard Port Directly
 
-Use hotplug to create the tunnel on WAN up and clean it up on WAN down. The example below uses port 53—replace the variables with your real values.
+A more stable approach is to **completely avoid exposing port 53 on the public network**: let xray listen directly on a non-standard port (like 5353), and the client tunnel also forwards directly to that port, eliminating the iptables redirect step:
 
-`/etc/hotplug.d/iface/95-wan-up`
+1. xray configuration remains unchanged (dokodemo-door listening on 5353/UDP)
+2. **Skip** the iptables REDIRECT configuration above
+3. Change `PORT` in OpenWrt hotplug script to `5353`
+4. Configure OpenWrt upstream DNS as `VPS_IP#5353` (dnsmasq supports `server=x.x.x.x#5353` format to specify port)
 
-```sh
+Since tutuicmptunnel-kmod encapsulates traffic into ICMP packets on the public network, UDP ports are not externally visible at all. In this approach, the VPS has no open resolver exposure.
+
+## OpenWrt Configuration
+
+### 1. Register UID
+
+Add corresponding UID in both server and client's `/etc/tutuicmptunnel/uids`:
+
+```text
+116 yourname-dns
+```
+
+### 2. Configure Hotplug Script
+
+Use hotplug to create tunnel when WAN interface is up and clean up when down. Please replace the real values in the script (`HOST`, `PSK`, `UID_`, etc.).
+
+`/etc/hotplug.d/iface/95-wan-up`:
+
+```bash
 #!/bin/sh
 
 [ "$ACTION" = "ifup" ] || exit 0
 [ "$INTERFACE" = "wan" ] || exit 0
 
-logger "Starting custom WAN script"
+logger "Starting WAN custom script"
 
 UID_=yourname-dns
 HOST=x.x.x.x
 PSK=yourpsk
 PORT=53
-# export TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768  # adjust according to your tuserver settings
+#export TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1048576 # According to your tuserver setting
 
 V() {
   echo "$@"
@@ -146,22 +178,22 @@ ktuctl client-add uid $UID_ address $HOST port $PORT comment your-vps-name-dns
 echo "server-add uid $UID_ address @client_ip@ port $PORT comment yourname-dns" | V tuctl_client server $HOST server-port 14801 psk $PSK
 ```
 
-`/etc/hotplug.d/iface/95-wan-down`
+`/etc/hotplug.d/iface/95-wan-down`:
 
-```sh
+```bash
 #!/bin/sh
 
 [ "$ACTION" = "ifdown" ] || exit 0
 [ "$INTERFACE" = "wan" ] || exit 0
 
-logger "Stopping custom WAN script"
+logger "Closing WAN custom script"
 
 UID_=yourname-dns
 HOST=x.x.x.x
 PSK=yourpsk
 PORT=53
 COMMENT=yourname-dns
-# export TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768  # adjust according to your tuserver settings
+#export TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1048576 # According to your tuserver setting
 
 V() {
   echo "$@"
@@ -172,29 +204,30 @@ ktuctl client-del uid $UID_ address $HOST
 echo "server-del uid $UID_" | V tuctl_client server $HOST server-port 14801 psk $PSK
 ```
 
-Add the corresponding UID on both server and client in `/etc/tutuicmptunnel/uids`, for example:
+> [!NOTE]
+> * `UID_` is used to identify this tunnel instance, needs to be consistent on both ends
+> * `HOST` is your VPS public IP, `PSK` is the pre-shared key
+> * `tuctl_client` / `ktuctl` commands and port `14801` should match your actual deployment
+> * tutuicmptunnel-kmod completes UDP→ICMP conversion before netfilter, won't conflict with iptables REDIRECT
+> * Ensure OpenWrt and VPS time are synchronized to avoid key/session-based mechanism failures
 
-```text
-116 yourname-dns
+### 3. Enable Tunnel
+
+Restart WAN interface to trigger hotplug script to establish tunnel:
+
+```bash
+ifdown wan; ifup wan
 ```
 
-Notes:
+## Verification
 
-- `UID_` identifies this tunnel instance and must match on both sides.
-- `HOST` is your VPS public IP.
-- `PSK` is the pre-shared key.
-- Keep the `tuctl_client/ktuctl` commands and the management port `14801` consistent with your deployment.
-- `tutuicmptunnel-kmod` performs UDP→ICMP conversion **before** netfilter, so it won’t conflict with iptables `REDIRECT`.
-- Ensure OpenWrt and the VPS have synchronized time to avoid failures in key/session-based mechanisms.
+Test resolution again:
 
-## Testing and Enabling DNS
-
-At this point you can run `ifdown wan; ifup wan` to enable `tutuicmptunnel-kmod` protection for UDP (converted to ICMP).
-
-Check:
-
-```sh
+```bash
 dig reddit.com @your_vps_ip
+```
+
+```text
 ;; ->>HEADER<<- opcode: QUERY, rcode: NOERROR, id: 44623
 ;; flags: qr rd ra ; QUERY: 1, ANSWER: 4, AUTHORITY: 0, ADDITIONAL: 0
 ;; QUESTION SECTION:
@@ -206,21 +239,18 @@ reddit.com.    192    IN    A    151.101.1.140
 reddit.com.    192    IN    A    151.101.65.140
 reddit.com.    192    IN    A    151.101.129.140
 
-;; AUTHORITY SECTION:
-
-;; ADDITIONAL SECTION:
-
 ;; Query time: 80 msec
-;; SERVER: x.x.x.x
-;; WHEN: Fri Oct 10 10:21:19 2025
 ;; MSG SIZE  rcvd: 92
 ```
 
-If you get four consistent IPs and they match global public resolution, poisoning is significantly mitigated. Then set the primary DNS in the network interface or DHCP/DNS settings to your VPS IP (`HOST`).
+If the returned IP matches the global public resolution result, it indicates that pollution has been significantly mitigated. Finally, in OpenWrt's network interface or DHCP/DNS configuration, set the primary DNS to your VPS IP (i.e., `HOST`).
 
-# Summary
+## Summary
 
-- xray-core forwards DNS queries arriving at the VPS on `53/UDP` to a robust public DNS resolver.
-- iptables redirects external `53/UDP` traffic to xray’s `5353/UDP` listener to avoid port conflicts.
-- `tutuicmptunnel-kmod` converts DNS UDP queries into ICMP on OpenWrt, effectively reducing DPI-based poisoning.
-- Hotplug scripts manage the tunnel automatically, yielding a stable workflow and improved DNS correctness
+* **xray-core**: Forward DNS queries entering VPS on 53/UDP to stable public DNS
+* **iptables**: Redirect external requests on port 53 to xray's 5353, avoiding port conflicts
+* **tutuicmptunnel-kmod**: Encapsulate UDP queries into ICMP on OpenWrt side, effectively reducing DPI pollution
+* **Hotplug scripts**: Automatically manage tunnel with WAN interface, the overall process works stably on both home broadband and mobile networks
+
+> [!WARNING]
+> When using iptables REDIRECT approach, VPS public port 53 is an open resolver. Some VPS providers prohibit open port 53. If concerned, please use the "[Alternative: Use Non-standard Port Directly](#alternative-use-non-standard-port-directly)" approach.
