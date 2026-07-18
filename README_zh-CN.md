@@ -15,7 +15,7 @@
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-orange.svg)](#-操作系统要求与依赖)
 [![Language](https://img.shields.io/badge/language-C%20%2B%20kmod-brightgreen.svg)](#)
-[![Benchmark](https://img.shields.io/badge/benchmark-🚀%20faster%20than%20udp2raw-red.svg)](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
+[![Benchmark](https://img.shields.io/badge/benchmark-blue.svg)](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
 
 [特性](#-特性) • [架构](#-架构概览) • [安装](#-安装方法) • [使用](#-快速上手) • [应用场景](#-主要应用场景) • [致谢](#-致谢)
 
