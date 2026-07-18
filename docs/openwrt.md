@@ -153,13 +153,13 @@ On memory-constrained devices like routers, you can reduce password hashing memo
 **Server** (systemd unit file):
 
 ```ini
-Environment=TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768
+Environment=TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1048576
 ```
 
 **Client**:
 
 ```bash
-TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1024768 tuctl_client ...
+TUTUICMPTUNNEL_PWHASH_MEMLIMIT=1048576 tuctl_client ...
 ```
 
 > [!WARNING]
