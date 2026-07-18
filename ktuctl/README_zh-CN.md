@@ -1,3 +1,7 @@
+[English](./README.md) | [简体中文](./README_zh-CN.md)
+
+---
+
 # ktuctl
 
 `ktuctl` 是 `tutuicmptunnel-kmod` 的用户层控制器。它不需要驻留内存，配置完成后立即退出；此后由驻扎在内存中的内核模块独立提供服务。

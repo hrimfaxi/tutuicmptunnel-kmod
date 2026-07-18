@@ -1,3 +1,7 @@
+[English](./README.md) | [简体中文](./README_zh-CN.md)
+
+---
+
 # tuserver
 
 `tuserver` 是 `tutuicmptunnel` 的控制工具目录，包含用于管理服务端隧道节点配置的两个程序：

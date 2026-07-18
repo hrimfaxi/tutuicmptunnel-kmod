@@ -2,277 +2,356 @@
 
 ---
 
-# tutuicmptunnel-kmod
+<div align="center">
 
-An `nftables`-based tool for tunneling UDP traffic over ICMP, serving as an alternative to `udp2raw`'s ICMP mode.
+# 🚇 tutuicmptunnel-kmod
 
-It is recommended to use this tool together with `kcptun`, `hysteria`, `wireguard`, and similar tools. This combination helps to effectively bypass increasingly strict UDP QOS and packet loss policies imposed by the `GFW` or ISPs, greatly improving penetration capability and connection stability.
+**A `UDP` ⇄ `ICMP` tunneling tool based on `nftables` kernel module**
 
-## Advantages and Features
+Can serve as a high-performance alternative to `udp2raw` ICMP mode.
+Recommended to be used in combination with `kcptun` / `hysteria` / `wireguard` and other tools,
+jointly coping with increasingly strict UDP QoS and packet loss policies, effectively improving penetration capability and connection stability.
 
-1.  Several times faster than `udp2raw` in maximum throughput under the same CPU load, while consuming significantly less CPU resources. See [Performance Benchmarks](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md).
-2.  Secure by design and implementation.
-3.  Compared to the `bpf`-based `tutuicmptunnel`, it is about 22% faster. It supports `openwrt` without recompiling the kernel.
-4.  Supports `ICMP`/`ICMPv6` for both `IPv4`/`IPv6`.
-5.  Allows for secure and rapid synchronization of server/client configurations using `tuctl_server`.
+[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-orange.svg)](#-operating-system-requirements-and-dependencies)
+[![Language](https://img.shields.io/badge/language-C%20%2B%20kmod-brightgreen.svg)](#)
+[![Benchmark](https://img.shields.io/badge/benchmark-🚀%20faster%20than%20udp2raw-red.svg)](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
 
-## Overview
+[Features](#-features) • [Architecture](#-architecture-overview) • [Installation](#-installation) • [Usage](#-quick-start) • [Use Cases](#-main-use-cases) • [Acknowledgements](#-acknowledgements)
 
-`tutuicmptunnel-kmod` consists of two parts: a server and a client. Each host can only act as one role, not both.
-To distinguish packets from different clients, each client connected to the server is assigned a unique `UID` ranging from 0 to 255.
-This `UID` corresponds to the `code` field in the ICMP protocol, meaning each server can support up to 256 clients.
+</div>
 
-A client can also map to different servers. For instance, traffic to host `1.2.3.4` on port `3322` can be mapped to `UID` 100,
-while traffic to `2.3.4.5` on port `2233` can be mapped to `UID` 101.
-This allows a client to flexibly manage access to multiple servers using different `UID`s.
+---
 
-Clients are allowed to use the same `UID` on different servers, as the `UID` only identifies the client's identity on a specific server.
-In other words, the `UID` is unique only within the scope of each server and can be reused across different servers.
+## ✨ Features
 
-*   The client uses a 3-tuple [`UID`, Server `IP`, Destination Port (`port`)] to identify which UDP packets need to be converted to ICMP.
-*   The server uses a 3-tuple [`UID`, Client `IP`, Destination Port (`port`)] to identify which ICMP packets need to be restored and forwarded as UDP.
-*   The `IP` address can be `IPv4` or `IPv6`. `tutuicmptunnel-kmod` will automatically select `ICMP` or `ICMPv6` for encapsulation and forwarding based on the IP type.
+- 🚀 **High Performance** — Under the same CPU, maximum throughput is several times faster than `udp2raw`, with much lower CPU usage (see [Benchmark](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md))
+- ⚡ **Faster than BPF version** — Approximately **22%** faster than the BPF-based `tutuicmptunnel`, and supports OpenWrt without recompiling the kernel
+- 🔐 **Secure Design** — Configuration synchronization uses `XChaCha20-Poly1305` + `Argon2id` + timestamp + PSK authentication
+- 🌐 **Dual-Stack Support** — Simultaneously supports `ICMP` / `ICMPv6` over IPv4 / IPv6
+- 🔄 **Hot Configuration Sync** — Securely and quickly synchronize server and client configuration via `tuctl_server` / `tuctl_client`
+- 🔗 **Interoperable** — Interchangeable communication with the BPF version of `tutuicmptunnel` (one end as server, the other as client)
+- 🧩 **Single Responsibility** — Handles encapsulation, forwarding, and simple XOR obfuscation; encryption and integrity verification are delegated to upper-layer tools (WireGuard / hysteria / xray, etc.)
 
-`tutuicmptunnel-kmod` can be paired with tools like `WireGuard`, `xray-core`+`kcptun`, and `hysteria`.
-Since these applications already provide encryption and integrity checks, `tutuicmptunnel-kmod` does not handle data encryption, obfuscation, or validation, focusing solely on data encapsulation and forwarding.
+---
 
-`tutuicmptunnel-kmod` does not modify the payload of data packets, nor does it add extra `IP` headers.
-Forwarding rules on the server are configured entirely by the user manually adding the aforementioned 3-tuples via commands.
+## 🏗 Architecture Overview
 
-The client can invoke server commands via `SSH`: using the [ktuctl](ktuctl/README_zh-CN.md) command to manually modify the 3-tuples (including updating the client's own `IP` address).
-To facilitate dynamic updates, the `tuctl_client` tool can be used to synchronize configuration via the UDP protocol, allowing the client to notify the server of its new IP and port information.
+`tutuicmptunnel-kmod` is divided into **server** and **client** parts, each running the corresponding program. Each host can only play one of the two roles.
 
-`tuctl_server` and `tuctl_client` communicate over UDP, using a timestamp-based mechanism combined with the `XChaCha20-Poly1305` encryption algorithm, `Argon2id` key derivation function, and a Pre-Shared Key (`PSK`) for secure authentication. This scheme enables clients to securely and efficiently notify the server of new configuration information in real-time.
+The data path is as follows:
 
-`tutuicmptunnel-kmod` is based on the `nftables` kernel module mechanism. It can communicate interchangeably with `tutuicmptunnel` (one as server, the other as client). It has the following advantages:
-1. About 22% faster than `tutuicmptunnel`.
-2. It does not require recompiling the kernel to support `openwrt`.
+```mermaid
+flowchart LR
+    subgraph Client["🖥️ Client"]
+        APP["Upper-layer application<br/>(kcptun / hysteria / wireguard ...)"]
+        KMOD_C["tutuicmptunnel.ko<br/>UDP → ICMP encapsulation"]
+        APP -- "UDP packets" --> KMOD_C
+    end
 
-## Preparation for Evaluation
+    subgraph Internet["🌍 Intermediate Network"]
+        GW["GFW / ISP / Gateway<br/>can only see ICMP Echo / Reply"]
+    end
 
-### Step 0: Evaluate ICMP Path Performance
+    subgraph Server["☁️ Server"]
+        KMOD_S["tutuicmptunnel.ko<br/>ICMP → UDP restoration"]
+        UPSTREAM["Target service<br/>(kcptun-server / wg ...)"]
+        KMOD_S -- "Restored UDP packets" --> UPSTREAM
+    end
 
-Before deploying `tutuicmptunnel-kmod`, first verify whether the current path is suitable for carrying ICMP tunnel traffic. The core idea is simple: compare ICMP and UDP under the same network conditions.
-
-1. Run an ICMP/UDP comparison test
-
-Use the following methods to stress-test or measure throughput on the path:
-
-- Use `ping -f` or other ICMP flood methods to observe ICMP responsiveness and packet loss
-- Use `iperf3 -u -c ...` to measure UDP performance for comparison
-
-If the results show that:
-
-- ICMP is clearly better than UDP in terms of stability, throughput, or latency
-
-then the path is usually a good candidate for deploying `tutuicmptunnel-kmod`, and you can proceed.
-
-2. If ICMP performance is worse than expected
-
-If ICMP does not outperform UDP, or is even significantly worse, then there may be other factors interfering with the test. In that case, inspect the intermediate devices on the path first. Common issues include:
-
-- Poorly implemented or low-performance home ONTs/modems
-- Various so-called "enterprise-grade" firewalls, traffic management appliances, or other gateways that treat ICMP specially
-
-One thing to pay special attention to is that on some of these devices, even if the web interface says the firewall is "disabled", there may still be filtering, rate limiting, or policy logic active underneath that cannot actually be turned off. In other words, it may look disabled while still interfering with ICMP traffic.
-
-These devices may rate-limit, shape, deprioritize, or otherwise mishandle ICMP, leading to misleading test results.
-
-3. Retest after removing intermediate interference
-
-In this case, try to:
-
-- Remove the problematic modem/ONT
-- Bypass or eliminate the firewall or gateway devices involved
-- Make the test path as close to a "bare network" path as possible
-
-Then repeat Step 1. Only after removing the effects of these intermediate devices can you accurately determine whether the path is suitable for deploying `tutuicmptunnel-kmod`.
-
-## OS Requirements and Dependencies
-
-### `Ubuntu`
-
-Version: At least 20.04, with version 24.04 LTS or newer recommended.
-
-Dependencies:
-
-```sh
-sudo apt install -y git libsodium-dev dkms build-essential linux-headers-$(uname -r) flex bison libmnl-dev cmake pkg-config
+    KMOD_C -- "ICMP Echo" --> GW
+    GW -- "ICMP Echo" --> KMOD_S
+    UPSTREAM -. "UDP response" .-> KMOD_S
+    KMOD_S -. "ICMP Reply" .-> GW
+    GW -. "ICMP Reply" .-> KMOD_C
 ```
 
-### `Arch Linux`
+Configuration synchronization path (optional, independent of the data plane):
 
-Version: Latest is sufficient
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as tuctl_client (Client)
+    participant S as tuctl_server (Server)
+    participant K as tutuicmptunnel.ko
 
-Dependency Preparation:
+    Note over C,S: UDP communication · XChaCha20-Poly1305 encryption<br/>Argon2id key derivation · Timestamp anti-replay · PSK authentication
+    C->>S: Report new configuration (uid / @client_ip@ / port / comment)
+    S->>K: Update forwarding triple [UID, Client IP, Port]
+    S-->>C: Acknowledgement
+    Note over C,K: Real-time hot update when client IP changes, no manual SSH login required
+```
+
+### 🆔 UID Mechanism
+
+- To distinguish packets from different clients, each client connecting to the server is assigned a unique `UID` (range **0 ~ 255**), which maps to the `code` field of the `ICMP` protocol — therefore **each server supports a maximum of 256 clients**.
+- `UID` is only unique within the scope of each server: a client can use the same `UID` on different servers, or use different `UIDs` to connect to multiple servers.
+  - For example: map host `1.2.3.4:3322` to `uid 100`, and host `2.3.4.5:2233` to `uid 101`.
+
+### 📦 Forwarding Triple
+
+| Role | Triple | Purpose |
+| :--- | :--- | :--- |
+| Client | `[UID, Server IP, Target Port]` | Identifies which `UDP` packets need to be converted to `ICMP` packets |
+| Server | `[UID, Client IP, Target Port]` | Identifies which `ICMP` packets need to be restored and forwarded as `UDP` packets |
+
+> 💡 IP addresses can be IPv4 or IPv6; `tutuicmptunnel-kmod` will automatically select `ICMP` or `ICMPv6` for encapsulation and forwarding based on the IP type.
+
+### 🎯 Design Principles
+
+- Can be used in combination with `WireGuard`, `xray-core` + `kcptun`, `hysteria` and other tools. Since these tools already have built-in encryption and integrity verification capabilities, `tutuicmptunnel-kmod` provides simple XOR obfuscation and is **not responsible for encryption and verification**, mainly handling encapsulation and forwarding.
+- **Does not modify packet payload content**, nor does it add extra IP headers to packets.
+- Server-side forwarding rules are entirely configured manually by the user via triples (can be invoked via [ktuctl](ktuctl/README.md) over SSH, or dynamically synchronized using `tuctl_client`).
+
+---
+
+## 🔍 Survey Preparation: Step 0
+
+Before deploying `tutuicmptunnel-kmod`, first verify whether the current link is suitable for carrying an ICMP tunnel. The core idea: **compare the actual performance of ICMP vs UDP on the same link**.
+
+```mermaid
+flowchart TD
+    A["① Comparative test<br/>ping -f (ICMP flood)<br/>vs<br/>iperf3 -u (UDP)"] --> B{ICMP performance<br/>significantly better than UDP?}
+    B -- "✅ Yes" --> C["Link is worth deploying<br/>Continue installation 🎉"]
+    B -- "❌ No" --> D["Investigate intermediate devices:<br/>· Low-performance home ONTs<br/>· Enterprise firewalls / behavior management devices<br/>· Gateways with special ICMP handling"]
+    D --> E["Remove / bypass problematic devices<br/>Make the link as close to 'bare network' as possible"]
+    E --> A
+```
+
+1. **Perform ICMP / UDP comparative test**
+   - Use `ping -f` or other ICMP flood methods to observe ICMP responsiveness and packet loss
+   - Use `iperf3 -u -c ...` for UDP performance comparison testing
+   - If ICMP stability, throughput, or latency is **significantly better than UDP**, the link is worth deploying
+
+2. **If ICMP performance is not as expected**
+   This indicates there may be interfering factors in the link. Common issues include:
+   - Low-performance, poorly implemented home ONTs (try switching the ONT to bridge mode and have the router handle dialing to mitigate ICMP rate limiting)
+   - Various "enterprise-grade" firewalls, internet behavior management devices, or other gateways that specially handle ICMP
+
+   > ⚠️ Such devices sometimes have underlying filtering, rate limiting, or policy processing logic that cannot be truly disabled — even when the web interface shows "firewall is off". It looks turned off, but it actually isn't.
+
+3. **Re-test after removing intermediate devices**
+   Remove problematic ONTs and bypass relevant firewalls as much as possible to bring the test link close to a "bare network" state, then repeat Step 1. Only after eliminating the influence of intermediate devices can you accurately determine whether the link is suitable for deployment.
+
+---
+
+## 💻 Operating System Requirements and Dependencies
+
+<details open>
+<summary><b>Ubuntu</b>（≥ 20.04, recommended 24.04 LTS and above）</summary>
 
 ```sh
-sudo pacman -S git libsodium dkms base-devel linux-headers flex bison libmnl cmake pkg-config
+sudo apt install -y git libsodium-dev dkms build-essential \
+    linux-headers-$(uname -r) flex bison libmnl-dev cmake pkg-config
 ```
-### `Openwrt`
 
-Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
+</details>
 
-## Installation Method
+<details>
+<summary><b>Arch Linux</b>（latest）</summary>
 
-1.  Check out the code and install
+```sh
+sudo pacman -S git libsodium dkms base-devel linux-headers \
+    flex bison libmnl cmake pkg-config
+```
 
-    ```sh
-    git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
-    cd tutuicmptunnel-kmod
-    cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
-    make
-    sudo make install
-    ```
+</details>
 
-2.  Kernel Module
+<details>
+<summary><b>OpenWrt</b>（≥ 24.10.1）</summary>
 
-    Both the server and client need to install the [tutuicmptunnel.ko](kmod/README_zh-CN.md) kernel module. This is the main program of `tutuicmptunnel-kmod`.
+Please refer to the 📖 [OpenWrt Guide](docs/openwrt.md).
 
-    ```sh
-    cd kmod
-    sudo dkms remove tutuicmptunnel/x.x --all # If an older version was previously installed, use dkms status to check past versions
-    sudo make dkms
-    sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
-    sudo modprobe tutuicmptunnel
-    ```
+For convenient deployment on OpenWrt, the following companion projects are provided:
 
-    Some systems require setting the `force_sw_checksum` parameter. For details, see [kmod](kmod/README_zh-CN.md#force_sw_checksum).
+| Project | Description |
+| :--- | :--- |
+| [tumgrd](https://github.com/hrimfaxi/tumgrd) | OpenWrt daemon for `tutuicmptunnel-kmod`, responsible for automatic kernel module loading and configuration management |
+| [openwrt-tumgrd](https://github.com/hrimfaxi/openwrt-tumgrd) | OpenWrt package Makefile for compiling and packaging `tumgrd` |
+| [luci-app-tumgrd](https://github.com/hrimfaxi/luci-app-tumgrd) | LuCI Web interface plugin, providing graphical configuration and status monitoring |
 
-3.  Server: Set up the system service and enable the optional `tuctl_server`
+Through these three projects, the following can be achieved:
+- 📦 One-click installation and automatic updates
+- 🖥️ LuCI Web interface graphical configuration
+- 🔄 Auto-start on boot and status monitoring
 
-    `tuctl_server` allows clients to control the `tutuicmptunnel-kmod` configuration on the server side.
+</details>
 
-    Please meet the following requirements:
-    *   To prevent brute-force attacks, remember to choose a sufficiently strong `PSK` password before use. It is best to generate one using the `uuidgen -r` command.
-    *   Since timestamps are used for validation, both the server and client require accurate system time.
+---
 
-    ```sh
-    # Automatically load the tutuicmptunnel-kmod service and restore configuration on boot
-    sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-server@.service /etc/systemd/system/
-    sudo systemctl enable --now tutuicmptunnel-kmod-server@eth0.service # where eth0 is the server's network interface
+## 📥 Installation
 
-    # Optional tuctl_server
-    sudo cp contrib/etc/systemd/system/tutuicmptunnel-tuctl-server.service /etc/systemd/system/
-    # Modify psk, port, etc.
-    sudo vim /etc/systemd/system/tutuicmptunnel-tuctl-server.service
-    timedatectl | grep "System clock synchronized:" # Check if the system time is synchronized with NTP
-    # Reload configuration
-    sudo systemctl daemon-reload
-    # Enable the tuctl_server service
-    sudo systemctl enable --now tutuicmptunnel-tuctl-server
-    ```
+### 1️⃣ Clone the code and compile
 
-    At this point, you can use the `ktuctl` command to check the server status:
-    ```sh
-    sudo ktuctl
-    tutuicmptunnel-kmod: Role: Server, BPF build type: Release
+```sh
+git clone https://github.com/hrimfaxi/tutuicmptunnel-kmod
+cd tutuicmptunnel-kmod
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_HARDEN_MODE=1 .
+make
+sudo make install
+```
 
-    Peers:
-    ....
-    ```
+### 2️⃣ Install the kernel module
 
-    Alternatively, you can manually start `tutuicmptunnel-kmod` in server mode without using the `systemd` service:
+Both server and client need to install [tutuicmptunnel.ko](kmod/README.md) — this is the main program of this tool.
 
-    ```sh
-    sudo modprobe -r tutuicmptunnel # Unload tutuicmptunnel module
-    sudo modprobe tutuicmptunnel # Load tutuicmptunnel module
-    sudo ktuctl server # Set to server mode
-    sudo ktuctl server-add uid 123 address 1.2.3.4 port 1234 # Add a client (id 123) with IP 1.2.3.4 and destination UDP port 1234
-    sudo ktuctl server-del uid 123 # Delete the previous client
-    ```
+```sh
+cd kmod
+# If a previous version was installed (check with dkms status), remove it first:
+sudo dkms remove tutuicmptunnel/x.x --all
+sudo make dkms
+sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
+sudo modprobe tutuicmptunnel
+```
 
-4.  Optional: Set up a `UID` and hostname mapping table
+> 💡 Some systems require setting the `force_sw_checksum` parameter. See [kmod documentation](kmod/README.md#force_sw_checksum) for details.
 
-    To facilitate `UID` management, `tutuicmptunnel-kmod` supports mapping client hostnames to `UID`s via the `/etc/tutuicmptunnel/uids` mapping file. You can create and edit this file as follows:
+### 3️⃣ Server: Set up systemd service and enable optional `tuctl_server`
 
-    ```sh
-    sudo mkdir -p /etc/tutuicmptunnel
-    sudo vim /etc/tutuicmptunnel/uids
-    ```
+`tuctl_server` can help clients remotely control server-side configuration. Before using, please note:
 
-    The format is as follows:
+- 🔑 To prevent brute-force attacks, choose a sufficiently strong `PSK` (recommended to generate with `uuidgen -r`)
+- 🕒 Since timestamp verification is used, both server and client need accurate system time (NTP synchronization)
 
-    ```
-    #
-    # Format: UID hostname # Optional comment
-    #
+```sh
+# Auto-load tutuicmptunnel-kmod service on boot and restore configuration
+sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-server@.service /etc/systemd/system/
+sudo systemctl enable --now tutuicmptunnel-kmod-server@eth0.service  # eth0 is the server network interface
 
-    0 alice # alice's laptop
-    1 bob   # bob's laptop
-    ```
+# Optional tuctl_server
+sudo cp contrib/etc/systemd/system/tutuicmptunnel-tuctl-server.service /etc/systemd/system/
+# Edit psk, port, etc.
+sudo vim /etc/systemd/system/tutuicmptunnel-tuctl-server.service
+timedatectl | grep "System clock synchronized:"  # Verify system time is NTP synchronized
+sudo systemctl daemon-reload
+sudo systemctl enable --now tutuicmptunnel-tuctl-server
+```
 
-    After configuration, in the `tuctl` (or `ktuctl`) command, any place that requires specifying a `UID` (e.g., `uid 0`) can be replaced with the hostname (e.g., `user alice`), making management more intuitive and convenient.
+Now you can use `ktuctl` to check the server status:
 
-5.  Client: Set up the system service and enable `tutuicmptunnel-kmod`
+```console
+$ sudo ktuctl
+tutuicmptunnel-kmod: Role: Server, BPF build type: Release
 
-    ```sh
-    # Set tutuicmptunnel-kmod to start on boot
-    sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
-    sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0 # Assuming your internet interface is enp4s0
-    ```
+Peers:
+....
+```
 
-    Now you can try out `tutuicmptunnel-kmod`:
+<details>
+<summary>👉 Start server mode manually without systemd</summary>
 
-    ```sh
-    export ADDRESS=yourserver.com # Server domain name or IP
-    export PORT=3322 # UDP port to be converted to ICMP
-    export TUTU_UID=123 # tutuicmptunnel user ID
-    export PSK=yourlongpsk # PSK for tuctl_server
-    export SERVER_PORT=14801 # Port for tuctl_server
-    export COMMENT=yourname # A description of your client's identity, the comment can be viewed in the tuctl command output on the server after the command succeeds
+```sh
+sudo modprobe -r tutuicmptunnel                                        # Unload module
+sudo modprobe tutuicmptunnel                                           # Reload
+sudo ktuctl server                                                     # Set to server mode
+sudo ktuctl server-add uid 123 address 1.2.3.4 port 1234               # Add client (uid 123, ip 1.2.3.4, target udp port 1234)
+sudo ktuctl server-del uid 123                                         # Delete client
+```
 
-    # Set to client mode
-    sudo ktuctl client
-    # Set the server's endpoint configuration
-    sudo ktuctl client-add uid $TUTU_UID address $ADDRESS port $PORT
-    # Verify if correct
-    sudo ktuctl status
-    # Use tuctl_client to notify the server of the new client settings
-    tuctl_client psk $PSK server $ADDRESS server-port $SERVER_PORT <<< "server-add uid $TUTU_UID address @client_ip@ port $PORT comment $COMMENT"
-    ```
+</details>
 
-    At this point, you can go to the server and use the `sudo ktuctl` command to view the rules added by the client:
+### 4️⃣ Optional: Set up UID and hostname mapping table
 
-    ```sh
-    tutuicmptunnel-kmod: Role: Server, BPF build type: Release
+For easier management, `tutuicmptunnel-kmod` supports mapping hostnames to `UIDs` via `/etc/tutuicmptunnel/uids`:
 
-    Peers:
-      User: xxxx, Address: xxx.xxx.xxx.xxx, Sport: 37926, Dport: 3322, ICMP: 11403, Comment: yourname
-    ```
+```sh
+sudo mkdir -p /etc/tutuicmptunnel
+sudo vim /etc/tutuicmptunnel/uids
+```
 
-    If everything is configured correctly, the `UDP` communication between the client and the server, originally with the client as the source address and 3322 as the destination port, will be automatically converted into `ICMP` packets by `tutuicmptunnel-kmod` on the client side. After the server receives the `ICMP` packet, it will restore it to a `UDP` packet and continue forwarding. Throughout the transmission process, intermediate network nodes can only see `ICMP Echo`/`Reply` packets.
+File format:
 
-## Main Application Scenarios
+```text
+#
+# Format: UID hostname # optional comment
+#
 
-| Name                                      | Introduction                                                                                             |
-| :---------------------------------------- | :------------------------------------------------------------------------------------------------------- |
-| [iperf3](docs/iperf3.md)                  | A powerful network performance testing tool used to measure bandwidth, jitter, and packet loss.            |
-| [hysteria](docs/hysteria.md)              | A proxy tool based on the QUIC protocol, optimized for unstable and high-loss networks.                  |
-| [shadowquic](docs/shadowquic.md) | A proxy tool based on rust and the QUIC protocol, optimized for unstable and high-loss networks.                  |
-| [xray+hysteria](docs/xray_hysteria.md)    | A combination of the Xray core and the Hysteria protocol, used to accelerate and stabilize network connections. |
-| [xray+kcptun](docs/xray_kcptun.md)        | A combination of the Xray core and the KCPtun protocol, used to accelerate and stabilize network connections. |
-| [xray+mkcp](docs/xray_mkcp.md)            | Xray core with its native mKCP implementation, used to accelerate and stabilize network connections. |
-| [xray+dns](docs/xray_dns.md)            | Forward DNS queries via xray-core (dokodemo-door) on a VPS, with UDP encapsulated into ICMP on OpenWrt  |
-| [wireguard](docs/wireguard.md)            | A modern, high-performance, and easy-to-configure secure VPN tunnel.                                     |
-| [openwrt](docs/openwrt.md)                | A highly customizable Linux operating system for embedded devices, especially routers.                   |
-| [mosh](docs/mosh.md)                      | Roaming shell over UDP, launched via SSH; supports reconnection                                                |
+0 alice # alice's laptop
+1 bob   # bob's laptop
+```
 
-## Acknowledgements
+Once configured, all places in the `ktuctl` command that require specifying a `UID` (e.g. `uid 0`) can use the hostname directly (e.g. `user alice`) instead, making management more intuitive.
 
-During its design, implementation, and performance tuning, `tutuicmptunnel-kmod` has referenced and benefited from numerous excellent open-source projects and technical articles. We extend our sincere gratitude to their authors and community contributors!
+### 5️⃣ Client: Set up systemd service and enable
 
-* [hysteria](https://github.com/apernet/hysteria)
-* [shadowquic](https://github.com/spongebob888/shadowquic)
-* [kcptun](https://github.com/xtaci/kcptun)
-* [xray-core](https://github.com/XTLS/Xray-core)
-* [udp2raw](https://github.com/wangyu-/udp2raw)
-* [mimic](https://github.com/hack3ric/mimic)
-* [libbpf-bootstrap](https://github.com/libbpf/libbpf-bootstrap)
+```sh
+sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
+sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0  # enp4s0 is your network interface
+```
 
-Special thanks to [@hack3ric](https://github.com/hack3ric) and all contributors for their continuous maintenance, making `UDP`→`fakeTCP` obfuscation on `eBPF` possible.
+---
 
-## License
+## 🚀 Quick Start
 
-This project as a whole adheres to the **GNU General Public License v2.0**.
+Client configuration example:
+
+```sh
+export ADDRESS=yourserver.com   # Server domain or IP
+export PORT=3322                # UDP port to be converted to ICMP
+export TUTU_UID=123             # tutuicmptunnel user ID
+export PSK=yourlongpsk          # PSK for tuctl_server
+export SERVER_PORT=14801        # Port for tuctl_server
+export COMMENT=yourname         # Client identity description (visible in server ktuctl output)
+
+# Set to client mode
+sudo ktuctl client
+# Add server endpoint configuration
+sudo ktuctl client-add uid $TUTU_UID address $ADDRESS port $PORT
+# Verify configuration
+sudo ktuctl status
+# Use tuctl_client to notify the server to sync new configuration
+tuctl_client psk $PSK server $ADDRESS server-port $SERVER_PORT \
+    <<< "server-add uid $TUTU_UID address @client_ip@ port $PORT comment $COMMENT"
+```
+
+Then confirm on the server that the rule has taken effect:
+
+```console
+$ sudo ktuctl
+tutuicmptunnel-kmod: Role: Server, BPF build type: Release
+
+Peers:
+  User: xxxx, Address: xxx.xxx.xxx.xxx, Sport: 37926, Dport: 3322, ICMP: 11403, Comment: yourname
+```
+
+✅ Once everything is ready: `UDP` traffic sent by the client to port `3322` will be automatically encapsulated as `ICMP`; the server receives and restores it to `UDP` for continued forwarding. **During the entire transmission, intermediate nodes can only see `ICMP Echo` / `Reply` packets.**
+
+---
+
+## 🧰 Main Use Cases
+
+| Name | Description |
+| :--- | :--- |
+| [iperf3](docs/iperf3.md) | Powerful network performance testing tool for measuring bandwidth, jitter, and packet loss |
+| [hysteria](docs/hysteria.md) | Proxy tool based on the QUIC protocol, optimized for unstable and high packet-loss networks |
+| [shadowquic](docs/shadowquic.md) | Proxy tool based on Rust and QUIC protocol, optimized for unstable and high packet-loss networks |
+| [xray + hysteria](docs/xray_hysteria.md) | Combination of Xray core and Hysteria protocol for accelerating and stabilizing network connections |
+| [xray + kcptun](docs/xray_kcptun.md) | Combination of Xray core and KCPTun protocol for accelerating and stabilizing network connections |
+| [xray + mkcp](docs/xray_mkcp.md) | Xray core with its built-in mKCP implementation for accelerating and stabilizing network connections |
+| [xray + dns](docs/xray_dns.md) | Forward DNS on VPS using xray-core (dokodemo-door), and encapsulate UDP as ICMP on the OpenWrt side for transmission |
+| [wireguard](docs/wireguard.md) | Modern, high-performance, and easy-to-configure secure VPN tunnel |
+| [openwrt](docs/openwrt.md) | Highly customizable Linux operating system for embedded devices (especially routers) |
+| [mosh](docs/mosh.md) | SSH-initiated, UDP-transmitted roaming shell that supports reconnection and maintains smooth interaction under high-latency/jitter networks |
+
+---
+
+## 🙏 Acknowledgements
+
+During the design, implementation, and performance tuning of `tutuicmptunnel-kmod`, we have referenced and benefited from numerous excellent open-source projects and technical articles. We sincerely thank their authors and community contributors!
+
+- [hysteria](https://github.com/apernet/hysteria)
+- [shadowquic](https://github.com/spongebob888/shadowquic)
+- [kcptun](https://github.com/xtaci/kcptun)
+- [xray-core](https://github.com/XTLS/Xray-core)
+- [udp2raw](https://github.com/wangyu-/udp2raw)
+- [mimic](https://github.com/hack3ric/mimic)
+- [libbpf-bootstrap](https://github.com/libbpf/libbpf-bootstrap)
+
+Special thanks to [@hack3ric](https://github.com/hack3ric) and all contributors for their continuous maintenance, making `UDP` → `fakeTCP` obfuscation on eBPF possible.
+
+---
+
+## 📄 License
+
+This project as a whole is licensed under the **GNU General Public License v2.0**.
 The `libbpf` and `bpftool` submodules retain their respective original licenses (`LGPL-2.1` / `BSD-2-Clause`).
