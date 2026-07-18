@@ -1,5 +1,9 @@
 # 使用 tutuicmptunnel-kmod 保护 DNS 查询（xray + OpenWrt）
 
+[English](./xray_dns.md) | [简体中文](./xray_dns_zh-CN.md)
+
+---
+
 将 VPS 上的 DNS 查询通过 xray-core 的 dokodemo-door 转发到 8.8.8.8，并在 OpenWrt 侧用 tutuicmptunnel-kmod 将 UDP 查询封装为 ICMP，降低 DPI 干扰与污染的概率。VPS 上通过 iptables 将对外的 53/UDP 重定向到本机 5353/UDP，避开 systemd-resolved 的端口占用。
 
 ```mermaid

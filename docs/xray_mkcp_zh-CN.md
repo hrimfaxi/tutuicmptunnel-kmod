@@ -1,5 +1,9 @@
 # Xray mKCP + tutuicmptunnel-kmod
 
+[English](./xray_mkcp.md) | [简体中文](./xray_mkcp_zh-CN.md)
+
+---
+
 ## 概述
 
 `xray-core` 内置的 `mKCP` 传输可以替代「`xray-core` + `kcptun`」双进程方案，主要优势：

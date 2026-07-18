@@ -1,5 +1,9 @@
 # 在 OpenWrt 上运行 tutuicmptunnel-kmod 客户端
 
+[English](./openwrt.md) | [简体中文](./openwrt_zh-CN.md)
+
+---
+
 `tutuicmptunnel-kmod` 可以在标准的 OpenWrt 固件上运行。在 OpenWrt 设备上部署客户端有两条路线：
 
 | 路线 | 说明 | 适合人群 |

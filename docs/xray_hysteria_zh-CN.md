@@ -1,5 +1,9 @@
 # xray-core 客户端 + Hysteria 服务端（配合 tutuicmptunnel-kmod）
 
+[English](./xray_hysteria.md) | [简体中文](./xray_hysteria_zh-CN.md)
+
+---
+
 `xray-core`（v26.2.6 起）已原生支持 `hysteria` outbound：客户端可以直接用 `xray-core` 连接 Hysteria 服务端，同时继续由 `xray-core` 统一管理出站、路由与分流策略。再叠加 `tutuicmptunnel-kmod`，即可把 Hysteria 的 UDP 流量封装为 ICMP 传输。
 
 ```mermaid

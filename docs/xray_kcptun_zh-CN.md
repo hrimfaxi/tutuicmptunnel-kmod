@@ -1,5 +1,9 @@
 # Xray + KCPTun + tutuicmptunnel-kmod
 
+[English](./xray_kcptun.md) | [简体中文](./xray_kcptun_zh-CN.md)
+
+---
+
 ## 概述
 
 `xray-core` 是一款常用的网络代理工具。为了提升传输性能与抗干扰能力，可以在其之上叠加 `kcptun`：

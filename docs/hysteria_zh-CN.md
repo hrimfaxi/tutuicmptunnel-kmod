@@ -1,5 +1,9 @@
 # 使用 tutuicmptunnel-kmod 保护 hysteria 流量
 
+[English](./hysteria.md) | [简体中文](./hysteria_zh-CN.md)
+
+---
+
 `hysteria` 基于 UDP/QUIC 传输，同样容易受到 ISP 针对 UDP 的 QoS 限速与干扰。通过 `tutuicmptunnel-kmod`，可以将 hysteria 的 UDP 流量封装为 ICMP 报文传输：
 
 ```mermaid

@@ -1,5 +1,9 @@
 # 使用 tutuicmptunnel-kmod 保护 mosh 流量
 
+[English](./mosh.md) | [简体中文](./mosh_zh-CN.md)
+
+---
+
 `mosh` 的交互数据走 UDP，在 UDP 被封锁或 QoS 限速的网络中会出现卡顿甚至完全不可用。本文演示如何将 mosh 的 UDP 会话端口固定为单个端口（以 `3325/udp` 为例），并用 `tutuicmptunnel-kmod` 将该端口的 UDP 流量封装进 ICMP echo request/reply 传输，从而在恶劣网络环境中保持 mosh 可用。
 
 ```mermaid

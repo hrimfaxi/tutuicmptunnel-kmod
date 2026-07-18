@@ -1,5 +1,9 @@
 # 使用 tutuicmptunnel-kmod 保护 shadowquic 流量
 
+[English](./shadowquic.md) | [简体中文](./shadowquic_zh-CN.md)
+
+---
+
 `shadowquic` 是一个基于 **Rust** 与 **quinn（QUIC）** 的代理工具，设计思路与 Hysteria 类似：通过 **UDP/QUIC** 传输获得更高的吞吐量和更好的弱网表现。配合 `tutuicmptunnel-kmod`，可以将 QUIC 的 UDP 流量封装进 ICMP 报文传输，绕过针对 UDP 的 QoS 限速与干扰。
 
 > [!IMPORTANT]

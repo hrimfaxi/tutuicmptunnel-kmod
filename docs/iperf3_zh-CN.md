@@ -1,5 +1,9 @@
 # 使用 iperf3 测试 tutuicmptunnel-kmod 隧道性能
 
+[English](./iperf3.md) | [简体中文](./iperf3_zh-CN.md)
+
+---
+
 本文演示如何用 `ktuctl` 在客户端与服务器之间搭建一条 UDP-over-ICMP 隧道，并通过 `iperf3` 进行 UDP 吞吐测试，验证隧道的带宽、丢包率与抖动表现。
 
 ```mermaid
