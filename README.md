@@ -9,7 +9,10 @@
 **A `UDP` ⇄ `ICMP` tunneling tool based on `nftables` kernel module**
 
 Can serve as a high-performance alternative to `udp2raw` ICMP mode.
-Recommended to be used in combination with `kcptun` / `hysteria` / `wireguard` and other tools,
+
+> **⭐ Officially Recommended Best Companion: [ShadowQUIC](https://github.com/spongebob888/shadowquic)** — A Rust-based QUIC proxy that pairs perfectly with `tutuicmptunnel-kmod` for maximum performance and stealth.
+
+Also works well with `kcptun` / `hysteria` / `wireguard` and other tools,
 jointly coping with increasingly strict UDP QoS and packet loss policies, effectively improving penetration capability and connection stability.
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
@@ -322,9 +325,9 @@ Peers:
 
 | Name | Description |
 | :--- | :--- |
-| [iperf3](docs/iperf3.md) | Powerful network performance testing tool for measuring bandwidth, jitter, and packet loss |
+| [ShadowQUIC](docs/shadowquic.md) | **⭐ Recommended** — Rust-based QUIC proxy, the officially recommended best companion for `tutuicmptunnel-kmod` |
 | [hysteria](docs/hysteria.md) | Proxy tool based on the QUIC protocol, optimized for unstable and high packet-loss networks |
-| [shadowquic](docs/shadowquic.md) | Proxy tool based on Rust and QUIC protocol, optimized for unstable and high packet-loss networks |
+| [iperf3](docs/iperf3.md) | Powerful network performance testing tool for measuring bandwidth, jitter, and packet loss |
 | [xray + hysteria](docs/xray_hysteria.md) | Combination of Xray core and Hysteria protocol for accelerating and stabilizing network connections |
 | [xray + kcptun](docs/xray_kcptun.md) | Combination of Xray core and KCPTun protocol for accelerating and stabilizing network connections |
 | [xray + mkcp](docs/xray_mkcp.md) | Xray core with its built-in mKCP implementation for accelerating and stabilizing network connections |

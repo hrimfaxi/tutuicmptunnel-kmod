@@ -8,8 +8,11 @@
 
 **基于 `nftables` 内核模块的 `UDP` ⇄ `ICMP` 隧道工具**
 
-可作为 `udp2raw` ICMP 模式的高性能替代方案，
-推荐与 `kcptun` / `hysteria` / `wireguard` 等工具配合使用，
+可作为 `udp2raw` ICMP 模式的高性能替代方案。
+
+> **⭐ 官方推荐最佳伴侣：[ShadowQUIC](https://github.com/spongebob888/shadowquic)** — 基于 Rust 的 QUIC 代理，与 `tutuicmptunnel-kmod` 完美搭配，实现最佳性能与隐蔽性。
+
+也可与 `kcptun` / `hysteria` / `wireguard` 等工具配合使用，
 共同应对日益严厉的 UDP QoS 与丢包策略，有效提升穿透能力与连接稳定性。
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
@@ -322,9 +325,9 @@ Peers:
 
 | 名称 | 简介 |
 | :--- | :--- |
-| [iperf3](docs/iperf3.md) | 强大的网络性能测试工具，用于测量带宽、抖动和丢包 |
+| [ShadowQUIC](docs/shadowquic.md) | **⭐ 推荐** — 基于 Rust 的 QUIC 代理，`tutuicmptunnel-kmod` 官方推荐的最佳伴侣 |
 | [hysteria](docs/hysteria.md) | 基于 QUIC 协议的代理工具，专为不稳定和高丢包网络优化 |
-| [shadowquic](docs/shadowquic.md) | 基于 Rust 和 QUIC 协议的代理工具，专为不稳定和高丢包网络优化 |
+| [iperf3](docs/iperf3.md) | 强大的网络性能测试工具，用于测量带宽、抖动和丢包 |
 | [xray + hysteria](docs/xray_hysteria.md) | Xray 核心与 Hysteria 协议的组合，用于加速和稳定网络连接 |
 | [xray + kcptun](docs/xray_kcptun.md) | Xray 核心与 KCPTun 协议的组合，用于加速和稳定网络连接 |
 | [xray + mkcp](docs/xray_mkcp.md) | Xray 核心与自带的 mKCP 实现，用于加速和稳定网络连接 |
