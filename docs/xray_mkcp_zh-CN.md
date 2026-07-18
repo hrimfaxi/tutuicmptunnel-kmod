@@ -1,16 +1,51 @@
-# xray+kcptun
+# Xray mKCP + tutuicmptunnel-kmod
 
 ## 概述
 
-`xray-core` `mKCP` 可替代 `xray-core` + `kcptun` 双进程方案。优势主要是:
+`xray-core` 内置的 `mKCP` 传输可以替代「`xray-core` + `kcptun`」双进程方案，主要优势：
 
-- 去除双进程间拷贝与上下文切换开销。
-- `mKCP` 对 `xray-core` 更友好，调度与实现更高效。
-- 原生并发多条 `mKCP` 连接，避免 `KCP` 写头阻塞。
+- 省去了两个进程之间的数据拷贝与上下文切换开销；
+- `mKCP` 与 `xray-core` 的调度与实现结合更紧密，效率更高；
+- 原生支持多条 `mKCP` 连接并发，避免单条 `KCP` 连接的队头阻塞（head-of-line blocking）。
 
-## xray-core配置
+再叠加 `tutuicmptunnel-kmod` 后，链路中间节点看到的仍然只是 ICMP 报文。整体链路如下：
 
-服务器配置建议:
+```mermaid
+flowchart LR
+    subgraph C["客户端"]
+        xray_c["xray-core<br>outbound：mKCP/UDP"]
+        tmt_c["tutuicmptunnel-kmod<br>UDP → ICMP 封装"]
+        ctl_c["tuctl_client<br>（由 sync 脚本调用）"]
+        xray_c -->|"mKCP/UDP，目的端口 1234"| tmt_c
+    end
+
+    subgraph S["服务端"]
+        tmt_s["tutuicmptunnel-kmod<br>ICMP → UDP 解封"]
+        xray_s["xray-core<br>inbound :1234/UDP（mKCP）"]
+        ctl_s["tuctl_server<br>监听 :14801"]
+        tmt_s --> xray_s
+    end
+
+    tmt_c == "ICMP（公网，中间节点只能看到这里）" ==> tmt_s
+    ctl_c -. "UDP 14801 控制通道，注册 uid" .-> ctl_s
+```
+
+## 前提条件
+
+- 两端均已安装 `xray-core`；
+- 服务端已准备好 TLS 证书（本文示例路径为 `/etc/xray/xray.crt` 与 `/etc/xray/xray.key`）；
+- 两端均已安装 `tutuicmptunnel-kmod` 及配套工具（`ktuctl`、`tuctl_client`、`tuctl_server`）。
+
+本文涉及的端口：
+
+| 端口  | 协议 | 位置   | 用途                          |
+| ----- | ---- | ------ | ----------------------------- |
+| 1234  | UDP  | 服务端 | `xray-core` mKCP inbound      |
+| 14801 | UDP  | 服务端 | `tuctl_server` 监听端口       |
+
+## 配置 xray-core
+
+### 服务端配置
 
 ```json
 "inbounds": [
@@ -40,11 +75,11 @@
       "security": "tls",
       "tlsSettings": {
         "minVersion": "1.3",
-        "alpn": ["h2","http/1.1"],
+        "alpn": ["h2", "http/1.1"],
         "certificates": [
           {
             "certificateFile": "/etc/xray/xray.crt",
-            "keyFile": "/etc/xray/xray.key"
+            "keyFile": "/etc/xray/xkey.key"
           }
         ]
       }
@@ -53,7 +88,7 @@
 ]
 ```
 
-客户端配置建议:
+### 客户端配置
 
 ```json
 "outbounds": [
@@ -67,9 +102,7 @@
           "port": 1234,
           "users": [
             {
-              "id": "your_vps_id",
-              "alterId": 0,
-              "security": "auto",
+              "id": "your_xray_id",
               "encryption": "none",
               "flow": "xtls-rprx-vision"
             }
@@ -85,7 +118,7 @@
         "congestion": true,
         "uplinkCapacity": 2,
         "downlinkCapacity": 100,
-        "readBufferSize": 5,   // ≈ server writeBufferSize(3) × 1.5 取整
+        "readBufferSize": 5,   // ≈ ⌈服务端 writeBufferSize(3) × 1.5⌉
         "writeBufferSize": 1
       },
       "security": "tls",
@@ -101,32 +134,34 @@
 ]
 ```
 
+> 注意：两端用户的 `id` 必须一致（即 `your_xray_id` 为同一占位符）。
+
 要点：
 
-- 容量：`uplinkCapacity` 贴近实际可用上行；`downlinkCapacity` 设较大（如 100），避免下行瓶颈。
-- 服务器 `writeBufferSize` 近似原 `KCP` 的 `sndwnd`，过大可能造成发包洪水，压垮客户端或网络队列。
-- 实测经验：客户端 `readBufferSize ≈ ceil(server writeBufferSize × 1.5)`，在吞吐与时延间更均衡。
-- 其他：根据链路与硬件微调 `mtu`、`tti`、`congestion`，并观察吞吐、`RTT`、丢包和 `CPU` 占用。
-- 建议实际测试 `tti` 值，因为这部分有点反直觉：发送得太快未必会提升性能，反而可能触发 `ICMP` 速率限制，导致效率难以提升。
+- **容量**：`uplinkCapacity` / `downlinkCapacity` 单位为 MB/s，用于 mKCP 的速率估算，并非限速。`uplinkCapacity` 应贴近实际可用的上行带宽；`downlinkCapacity` 可设大一些（如 100），避免成为下行瓶颈。
+- **缓冲区**：`readBufferSize` / `writeBufferSize` 单位为 MB。服务端的 `writeBufferSize` 近似 kcptun 方案中的 `sndwnd`——过大会造成瞬时发包洪水，压垮客户端或中间网络队列。
+- **经验值**：客户端 `readBufferSize` 取 $\lceil \textit{writeBufferSize}_{\text{服务端}} \times 1.5 \rceil$ 左右（如服务端为 3，客户端取 5），在吞吐与时延之间较为均衡。
+- **tti**：单位为 ms，且有些反直觉——发送间隔太短未必更快；经 `tutuicmptunnel` 封装后，过高的包速率反而可能触发链路的 ICMP 限速。建议实测对比不同取值。
+- **其他**：根据链路与硬件微调 `mtu`、`congestion`，并观察吞吐、RTT、丢包与 CPU 占用。
 
-## tutuicmptunnel-kmod配置
+## 配置 tutuicmptunnel-kmod
 
-首先检查服务器/客户端两侧是否有共同的`/etc/tutuicmptunnel/uids`配置:
+首先，确认两端的 `/etc/tutuicmptunnel/uids` 中存在一致的 uid 条目（格式为 `uid 用户名`）：
 
-```
+```text
 123 your_user_name
 ```
 
-然后检查服务器/客户端两侧是否都已经加载`tutuicmptunnel.ko`，并`ktuctl`可以访问设备
+然后确认两端均已加载 `tutuicmptunnel.ko`，且 `ktuctl` 可以正常访问设备：
 
-```sh
+```bash
 sudo lsmod | grep tutuicmptunnel
 sudo ktuctl -d
 ```
 
-使用以下简单脚本在客户端运行,会同步配置到服务器/客户端两侧：
+在客户端运行以下脚本，即可同时下发客户端与服务端两侧的配置：
 
-```sh
+```bash
 #!/bin/sh
 
 V() {
@@ -135,43 +170,49 @@ V() {
 }
 
 TMP=$(mktemp)
-export DEV=enp4s0 # 你的客户端的上网接口名
+DEV=enp4s0                # 客户端的上网接口名
 
-sudo ktuctl dump > $TMP
+sudo ktuctl dump > "$TMP"
 sudo rmmod tutuicmptunnel
 sudo modprobe tutuicmptunnel
 
-export TUTU_UID=your_user_name # 替换为你的服务器上选好的uid
-export ADDRESS=yourdomain.com # 替换为你的xray-core服务器域名或IP
-export PORT=1234 # 替换为你的xray-core服务器udp端口
+TUTU_UID=your_user_name   # 服务端为该客户端分配的 uid（与 /etc/tutuicmptunnel/uids 一致）
+ADDRESS=yourdomain.com    # xray-core 服务端的域名或 IP
+PORT=1234                 # 服务端 xray-core mKCP inbound 的 UDP 端口
 
-sudo ktuctl script - < $TMP
-rm -f $TMP
+sudo ktuctl script - < "$TMP"
+rm -f "$TMP"
 sudo ktuctl client
 sudo ktuctl load iface "$DEV"
-sudo ktuctl client-del address $ADDRESS user $TUTU_UID
-sudo ktuctl client-add address $ADDRESS port $PORT user $TUTU_UID
+sudo ktuctl client-del address "$ADDRESS" user "$TUTU_UID"   # 先删旧条目，保证可重复执行
+sudo ktuctl client-add address "$ADDRESS" port "$PORT" user "$TUTU_UID"
 
-export COMMENT=your_client_name # 替换为你的客户端的注释，此注释会在服务器的ktuctl命令上显示
-export HOST=$ADDRESS
-export PSK=yourlongpsk # 替换为你的tuctl_server的PSK口令
-export SERVER_PORT=14801 # 替换为你的tuctl_server的端口
+COMMENT=your_client_name  # 客户端注释，会显示在服务端的 ktuctl 输出中
+HOST=$ADDRESS
+PSK=yourlongpsk           # tuctl_server 的 PSK 口令
+SERVER_PORT=14801         # tuctl_server 的监听端口
 
 printf "server\nserver-add uid $TUTU_UID address @client_ip@ port $PORT comment $COMMENT\n" | V tuctl_client \
-psk $PSK \
-server $HOST \
-server-port $SERVER_PORT
+  psk "$PSK" \
+  server "$HOST" \
+  server-port "$SERVER_PORT"
 
 # vim: set sw=2 ts=2 expandtab:
 ```
 
-启动`xray-core`客户端前运行脚本即可。你也可以在`xray-core`的`systemd`单元文件中添加`ExecStartPre`自动运行这个脚本。
-这样就不必每次都运行脚本了。
+在启动 `xray-core` 客户端之前运行该脚本即可。也可以把它挂到 `xray-core` 的 systemd 单元中自动执行，省去每次手动运行：
+
+```ini
+[Service]
+ExecStartPre=/usr/local/bin/tutuicmptunnel_sync.sh
+```
+
+别忘了先赋予执行权限：`sudo chmod +x /usr/local/bin/tutuicmptunnel_sync.sh`。
 
 ## 开机自启
 
-参见[hysteria](hysteria.md)，可以定期使用`crontab`或者`systemd-timer`调用以上脚本。
+`tutuicmptunnel` 的配置需要在内核模块加载后重新下发。可参见 [hysteria](hysteria.md) 中的做法，使用 `crontab` 或 systemd timer 定期调用上述脚本，实现开机自启。
 
 ## 参见
 
-- [xray-core mkcp说明](https://xtls.github.io/en/config/transports/mkcp.html)
+- [xray-core mKCP 官方文档](https://xtls.github.io/en/config/transports/mkcp.html)
