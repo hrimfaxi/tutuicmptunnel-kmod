@@ -97,7 +97,7 @@ sequenceDiagram
 
 - 可与 `WireGuard`、`xray-core` + `kcptun`、`hysteria` 等工具搭配使用。由于这些软件本身已具备加密和完整性校验能力，`tutuicmptunnel-kmod` 提供简单 XOR 混淆，**不负责加密与校验**，主要负责封装与转发。
 - **不修改数据包负载内容**，也不会在报文中添加额外的 IP 头部。
-- 服务器端转发规则完全由用户手动通过三元组配置（可通过 [ktuctl](ktuctl/README.md) 经 SSH 调用，或使用 `tuctl_client` 动态同步）。
+- 服务器端转发规则完全由用户手动通过三元组配置（可通过 [ktuctl](ktuctl/README_zh-CN.md) 经 SSH 调用，或使用 `tuctl_client` 动态同步）。
 
 ---
 
@@ -189,7 +189,7 @@ sudo make install
 
 ### 2️⃣ 安装内核模块
 
-服务器和客户端都需要安装 [tutuicmptunnel.ko](kmod/README.md) —— 这是本工具的主体程序。
+服务器和客户端都需要安装 [tutuicmptunnel.ko](kmod/README_zh-CN.md) —— 这是本工具的主体程序。
 
 ```sh
 cd kmod
@@ -200,7 +200,7 @@ sudo tee -a /etc/modules-load.d/modules.conf <<< tutuicmptunnel
 sudo modprobe tutuicmptunnel
 ```
 
-> 💡 部分系统需要设置 `force_sw_checksum` 参数，详见 [kmod 文档](kmod/README.md#force_sw_checksum)。
+> 💡 部分系统需要设置 `force_sw_checksum` 参数，详见 [kmod 文档](kmod/README_zh-CN.md#force_sw_checksum)。
 
 ### 3️⃣ 服务器：设置系统服务并启用可选的 `tuctl_server`
 

@@ -39,7 +39,7 @@ Since these applications already provide encryption and integrity checks, `tutui
 `tutuicmptunnel-kmod` does not modify the payload of data packets, nor does it add extra `IP` headers.
 Forwarding rules on the server are configured entirely by the user manually adding the aforementioned 3-tuples via commands.
 
-The client can invoke server commands via `SSH`: using the [ktuctl](ktuctl/README.md) command to manually modify the 3-tuples (including updating the client's own `IP` address).
+The client can invoke server commands via `SSH`: using the [ktuctl](ktuctl/README_zh-CN.md) command to manually modify the 3-tuples (including updating the client's own `IP` address).
 To facilitate dynamic updates, the `tuctl_client` tool can be used to synchronize configuration via the UDP protocol, allowing the client to notify the server of its new IP and port information.
 
 `tuctl_server` and `tuctl_client` communicate over UDP, using a timestamp-based mechanism combined with the `XChaCha20-Poly1305` encryption algorithm, `Argon2id` key derivation function, and a Pre-Shared Key (`PSK`) for secure authentication. This scheme enables clients to securely and efficiently notify the server of new configuration information in real-time.
@@ -127,7 +127,7 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
 
 2.  Kernel Module
 
-    Both the server and client need to install the [tutuicmptunnel.ko](kmod/README.md) kernel module. This is the main program of `tutuicmptunnel-kmod`.
+    Both the server and client need to install the [tutuicmptunnel.ko](kmod/README_zh-CN.md) kernel module. This is the main program of `tutuicmptunnel-kmod`.
 
     ```sh
     cd kmod
@@ -137,7 +137,7 @@ Version: At least 24.10.1, please see the [OpenWrt Guide](docs/openwrt.md)
     sudo modprobe tutuicmptunnel
     ```
 
-    Some systems require setting the `force_sw_checksum` parameter. For details, see [kmod](kmod/README.md#force_sw_checksum).
+    Some systems require setting the `force_sw_checksum` parameter. For details, see [kmod](kmod/README_zh-CN.md#force_sw_checksum).
 
 3.  Server: Set up the system service and enable the optional `tuctl_server`
 
