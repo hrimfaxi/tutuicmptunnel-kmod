@@ -184,6 +184,23 @@ Through these three projects, the following can be achieved:
 
 ## 📥 Installation
 
+### ⚡ One-Click Server Setup (curl)
+
+For a fresh Ubuntu / Arch Linux server, this single command installs everything — dependencies, kernel module, `tuctl_server` with a random PSK, and systemd services:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hrimfaxi/tutuicmptunnel-kmod/master/scripts/install-server.sh | sudo bash
+```
+
+The script auto-detects the network interface, generates a random PSK, and prints it at the end — **save it**, clients need it to connect.
+
+> ⚠️ NTP must be synchronized on both server and client (timestamp verification). Check with `timedatectl | grep "System clock synchronized:"`.
+
+### Manual Installation
+
+<details>
+<summary>Click to expand manual step-by-step instructions</summary>
+
 ### 1️⃣ Clone the code and compile
 
 ```sh
@@ -281,6 +298,8 @@ Once configured, all places in the `ktuctl` command that require specifying a `U
 sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
 sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0  # enp4s0 is your network interface
 ```
+
+</details>
 
 ---
 

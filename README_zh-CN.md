@@ -184,6 +184,23 @@ sudo pacman -S git libsodium dkms base-devel linux-headers \
 
 ## 📥 安装方法
 
+### ⚡ 一键部署服务器（curl）
+
+全新的 Ubuntu / Arch Linux 服务器，一条命令搞定一切——依赖、内核模块、随机 PSK 的 `tuctl_server`、systemd 服务：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hrimfaxi/tutuicmptunnel-kmod/master/scripts/install-server.sh | sudo bash
+```
+
+脚本会自动检测网卡、生成随机 PSK，并在安装完成后打印——**请妥善保存**，客户端连接时需要使用。
+
+> ⚠️ 服务器与客户端都需要准确的系统时间（NTP 同步）。检查：`timedatectl | grep "System clock synchronized:"`
+
+### 手动安装
+
+<details>
+<summary>点击展开手动分步安装说明</summary>
+
 ### 1️⃣ 检出代码并编译安装
 
 ```sh
@@ -281,6 +298,8 @@ sudo vim /etc/tutuicmptunnel/uids
 sudo cp contrib/etc/systemd/system/tutuicmptunnel-kmod-client@.service /etc/systemd/system/
 sudo systemctl enable --now tutuicmptunnel-kmod-client@enp4s0  # enp4s0 为你的上网接口
 ```
+
+</details>
 
 ---
 
