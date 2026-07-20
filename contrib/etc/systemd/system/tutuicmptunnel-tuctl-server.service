@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/default/tutuicmptunnel-tuctl-server
 ExecStart=/usr/local/bin/tuctl_server --psk testpassword --port 14801
 Restart=on-failure
 RestartSec=5

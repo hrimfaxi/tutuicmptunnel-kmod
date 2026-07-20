@@ -8,11 +8,12 @@ Type=simple
 EnvironmentFile=-/etc/default/tutuicmptunnel-client-%i
 ExecStartPre=/bin/bash -c 'modprobe tutuicmptunnel || true'
 ExecStartPre=/bin/mkdir -p /etc/tutuicmptunnel
-ExecStart=bash -c '\
-    if [ -f /etc/tutuicmptunnel/config ]; then  \
-        exec ktuctl script /etc/tutuicmptunnel/config; \
-    else  \
-        exec ktuctl client; \
+ExecStart=/bin/bash -c '\
+    ktuctl load iface %i; \
+    if [ -f /etc/tutuicmptunnel/config ]; then \
+        ktuctl script /etc/tutuicmptunnel/config; \
+    else \
+        ktuctl client; \
     fi'
 ExecStop=/bin/bash -c 'tmpfile=$(mktemp); if ktuctl dump > "$tmpfile"; then mv "$tmpfile" /etc/tutuicmptunnel/config; else rm -f "$tmpfile"; fi'
 ExecStop=/bin/bash -c 'modprobe -r tutuicmptunnel || true'
