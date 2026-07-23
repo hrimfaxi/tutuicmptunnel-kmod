@@ -15,7 +15,7 @@
 也可与 `kcptun` / `hysteria` / `wireguard` 等工具配合使用，
 共同应对日益严厉的 UDP QoS 与丢包策略，有效提升穿透能力与连接稳定性。
 
-[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+[![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2+-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-orange.svg)](#-操作系统要求与依赖)
 [![Language](https://img.shields.io/badge/language-C%20%2B%20kmod-brightgreen.svg)](#)
 [![Benchmark](https://img.shields.io/badge/benchmark-blue.svg)](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
@@ -375,5 +375,5 @@ Peers:
 
 ## 📄 许可证
 
-本项目整体遵循 **GNU General Public License v2.0**。
+本项目整体遵循 **GNU General Public License v2.0 或更高版本**（SPDX: `GPL-2.0-or-later`）。
 其中 `libbpf`、`bpftool` 子模块保留其各自原始许可证（`LGPL-2.1` / `BSD-2-Clause`）。

@@ -15,7 +15,7 @@ Can serve as a high-performance alternative to `udp2raw` ICMP mode.
 Also works well with `kcptun` / `hysteria` / `wireguard` and other tools,
 jointly coping with increasingly strict UDP QoS and packet loss policies, effectively improving penetration capability and connection stability.
 
-[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+[![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2+-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-orange.svg)](#-operating-system-requirements-and-dependencies)
 [![Language](https://img.shields.io/badge/language-C%20%2B%20kmod-brightgreen.svg)](#)
 [![Benchmark](https://img.shields.io/badge/benchmark-blue.svg)](https://github.com/hrimfaxi/tutuicmptunnel/blob/master/docs/benchmark.md)
@@ -375,5 +375,5 @@ Special thanks to [@hack3ric](https://github.com/hack3ric) and all contributors 
 
 ## 📄 License
 
-This project as a whole is licensed under the **GNU General Public License v2.0**.
+This project as a whole is licensed under the **GNU General Public License v2.0 or later** (SPDX: `GPL-2.0-or-later`).
 The `libbpf` and `bpftool` submodules retain their respective original licenses (`LGPL-2.1` / `BSD-2-Clause`).
