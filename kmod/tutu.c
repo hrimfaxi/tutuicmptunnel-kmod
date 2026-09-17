@@ -1528,7 +1528,7 @@ static void tutu_gc_work(struct work_struct *work) {
   struct tutu_gc_ctx *ctx = container_of(to_delayed_work(work), struct tutu_gc_ctx, dwork);
 
   (void) gc_session(gc_session_check_age, NULL);
-  queue_delayed_work(system_unbound_wq, &ctx->dwork, ctx->period_jiffies);
+  queue_delayed_work(TUTU_SYSTEM_UNBOUND_WQ, &ctx->dwork, ctx->period_jiffies);
 }
 
 static int tutu_gc_start(unsigned int period_sec) {
@@ -1542,7 +1542,7 @@ static int tutu_gc_start(unsigned int period_sec) {
   INIT_DELAYED_WORK(&gcctx->dwork, tutu_gc_work);
   gcctx->period_jiffies = msecs_to_jiffies(period_sec * 1000);
 
-  queue_delayed_work(system_unbound_wq, &gcctx->dwork, gcctx->period_jiffies);
+  queue_delayed_work(TUTU_SYSTEM_UNBOUND_WQ, &gcctx->dwork, gcctx->period_jiffies);
   return 0;
 }
 
